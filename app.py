@@ -1,19 +1,25 @@
-"""SQLShiftAI — Hugging Face Space: viral SQL Migration Agent playground."""
+"""MorphSQL — Hugging Face Space: AI SQL Migration Agent."""
 
 from __future__ import annotations
 
 import gradio as gr
 
 from sqlshift import __product_name__, __version__
+from sqlshift.ai.agent import chat_agent
+from sqlshift.ai.pipeline import pipeline
+from sqlshift.ai.risk_model import train_and_save
 from sqlshift.eval.pairs import ensure_pairs_file
 from demo.handlers import (
+    AGENT_PROMPTS,
     FEATURE_SQL_PATH,
     HERO_EXAMPLE,
+    PLAYGROUND_EXAMPLE_LABELS,
     PLAYGROUND_EXAMPLES,
     analyze_sql_object,
-    copilot_chat,
     get_leaderboard_md,
     get_sample_workbench,
+    load_agent_example,
+    load_playground_example,
     report_to_context,
     run_behavior_rag,
     run_eval_suite,
@@ -27,32 +33,15 @@ from demo.theme import CUSTOM_CSS, build_theme
 SOURCE_CHOICES = ["vertica", "oracle", "redshift", "bigquery", "snowflake"]
 TARGET_CHOICES = ["snowflake", "dbt-snowflake", "bigquery"]
 
-EXAMPLE_SQL = """CREATE OR REPLACE PROCEDURE SP_BUILD_CUSTOMER_DAILY(load_date DATE)
-AS $$
-BEGIN
-    CREATE LOCAL TEMP TABLE tmp_txns ON COMMIT PRESERVE ROWS AS
-    SELECT customer_id, order_id, order_amount,
-           ZEROIFNULL(discount_amount) AS discount_amount
-    FROM staging.customer_transactions
-    WHERE order_date = load_date;
-    INSERT INTO analytics.customer_daily
-    SELECT customer_id, load_date, COUNT(DISTINCT order_id),
-           SUM(order_amount - ZEROIFNULL(discount_amount))
-    FROM tmp_txns GROUP BY customer_id, load_date;
-END;
-$$;"""
-
-# Fast cold start: only light hero precompute (no full workbench scan)
 ensure_pairs_file()
+train_and_save()
+
 _HERO = run_hero_agent(HERO_EXAMPLE, "vertica", "snowflake")
+_RISK = pipeline("sql-risk-classification")(HERO_EXAMPLE)
 _FEATURE_SRC = (
     FEATURE_SQL_PATH.read_text(encoding="utf-8") if FEATURE_SQL_PATH.exists() else HERO_EXAMPLE
 )
-
-# Lazy caches for Advanced lab
 _SAMPLE = None
-_SAMPLE_INSPECTOR = None
-_FEATURE = None
 
 
 def _sample():
@@ -62,137 +51,143 @@ def _sample():
     return _SAMPLE
 
 
-def _inspector():
-    global _SAMPLE_INSPECTOR
-    if _SAMPLE_INSPECTOR is None:
-        _SAMPLE_INSPECTOR = analyze_sql_object(EXAMPLE_SQL, "vertica", "snowflake")
-    return _SAMPLE_INSPECTOR
-
-
-def _feature():
-    global _FEATURE
-    if _FEATURE is None:
-        _FEATURE = run_feature_migration("dbt-snowflake")
-    return _FEATURE
-
-
-def load_advanced_lab():
-    """Populate Advanced lab widgets on first open (keeps Space boot fast)."""
-    s = _sample()
-    i = _inspector()
-    f = _feature()
-    return (
-        report_to_context(s[11]),
-        s[0],
-        s[6],
-        s[7],
-        s[8],
-        s[1],
-        s[2],
-        s[3],
-        s[4],
-        s[5],
-        s[9],
-        s[10],
-        s[11],
-        i[0],
-        i[1],
-        i[2],
-        i[3],
-        i[4],
-        EXAMPLE_SQL,
-        f[0],
-        f[1],
-        _FEATURE_SRC,
-        "Advanced lab loaded · sample repo + inspector ready",
-    )
-
-
 def _build_demo() -> gr.Blocks:
-    with gr.Blocks(title="SQLShiftAI — Convert legacy SQL in one click") as demo:
+    with gr.Blocks(title="MorphSQL — AI SQL Migration Agent") as demo:
         report_state = gr.State(value=None)
         eval_state = gr.State(value={})
 
         gr.HTML(
             f"""
             <div class="header-block hero-viral">
-                <div class="eyebrow">HUGGING FACE · SQL MIGRATION AGENT</div>
+                <div class="eyebrow">AI SQL AGENT · RISK MODEL · RAG · CODEGEN</div>
                 <h1>{__product_name__}</h1>
-                <p>Paste broken legacy warehouse SQL. Get Snowflake / dbt / BigQuery in one click —
-                with confidence, behavior RAG, and optional dbt project emission.</p>
+                <p>Morph legacy warehouse SQL into Snowflake, BigQuery, or dbt —
+                with an AI agent, downloadable risk model, and behavior RAG.</p>
             </div>
             """
         )
 
         with gr.Tabs():
-            # ========== PLAYGROUND (viral loop) ==========
-            with gr.Tab("Playground"):
+            with gr.Tab("AI Agent"):
                 gr.Markdown(
-                    "**Before → After.** Click an example or paste your own. "
-                    "No signup. Results appear instantly."
+                    "Chat with the MorphSQL agent. "
+                    f"Sample risk: **{_RISK['label']}** ({_RISK['score']:.2f})."
                 )
                 with gr.Row():
-                    hero_source = gr.Dropdown(SOURCE_CHOICES, value="vertica", label="From", scale=1)
-                    hero_target = gr.Dropdown(TARGET_CHOICES, value="snowflake", label="To", scale=1)
-                    hero_run = gr.Button("Convert with Agent", variant="primary", scale=2)
-                    hero_badge = gr.Textbox(
-                        label="Score",
+                    ag_source = gr.Dropdown(SOURCE_CHOICES, value="vertica", label="From")
+                    ag_target = gr.Dropdown(TARGET_CHOICES, value="snowflake", label="To")
+                    ag_badge = gr.Textbox(
+                        label="Risk model",
+                        value=f"{_RISK['label']} · {_RISK['score']:.2f}",
                         interactive=False,
-                        value=_HERO[2],
-                        scale=2,
                     )
+                # Textbox (not Code) so example presets render visible text
+                ag_sql = gr.Textbox(
+                    label="SQL context",
+                    value=HERO_EXAMPLE,
+                    lines=8,
+                    max_lines=20,
+                )
+                ag_chat = gr.Chatbot(
+                    label="MorphSQL Agent",
+                    height=360,
+                    value=[{
+                        "role": "assistant",
+                        "content": "Try a preset below, then send: **Convert this and predict risk**",
+                    }],
+                )
+                with gr.Row():
+                    ag_msg = gr.Textbox(
+                        label="Message",
+                        value="Convert this SQL and predict migration risk",
+                        scale=4,
+                        lines=2,
+                    )
+                    ag_send = gr.Button("Send to agent", variant="primary", scale=1)
+                ag_out = gr.Textbox(
+                    label="Agent artifact (SQL / dbt)",
+                    lines=10,
+                    max_lines=30,
+                    value=_HERO[1],
+                )
+                ag_send.click(
+                    chat_agent,
+                    [ag_msg, ag_chat, ag_sql, ag_source, ag_target],
+                    [ag_chat, ag_msg, ag_out, ag_badge],
+                )
+                ag_msg.submit(
+                    chat_agent,
+                    [ag_msg, ag_chat, ag_sql, ag_source, ag_target],
+                    [ag_chat, ag_msg, ag_out, ag_badge],
+                )
+                gr.Markdown("**Try a preset**")
+                with gr.Row():
+                    for i, (prompt, _sql, _src, _tgt) in enumerate(AGENT_PROMPTS):
+                        btn = gr.Button(prompt[:42] + ("…" if len(prompt) > 42 else ""), size="sm")
+                        btn.click(
+                            lambda idx=i: load_agent_example(idx),
+                            outputs=[ag_msg, ag_sql, ag_source, ag_target],
+                        )
 
-                with gr.Row(equal_height=True):
-                    hero_sql = gr.Code(
+            with gr.Tab("Playground"):
+                gr.Markdown(
+                    "BEFORE → AFTER convert. Click a preset, then **Convert**."
+                )
+                with gr.Row():
+                    hero_source = gr.Dropdown(SOURCE_CHOICES, value="vertica", label="From")
+                    hero_target = gr.Dropdown(TARGET_CHOICES, value="snowflake", label="To")
+                    hero_run = gr.Button("Convert", variant="primary")
+                    hero_badge = gr.Textbox(label="Score", value=_HERO[2], interactive=False)
+                with gr.Row():
+                    hero_sql = gr.Textbox(
                         label="BEFORE · legacy SQL",
-                        language="sql",
                         value=HERO_EXAMPLE,
-                        lines=14,
+                        lines=10,
+                        max_lines=24,
                     )
-                    hero_out = gr.Code(
+                    hero_out = gr.Textbox(
                         label="AFTER · converted output",
-                        language="sql",
-                        lines=14,
-                        interactive=False,
+                        lines=10,
+                        max_lines=24,
                         value=_HERO[1],
                     )
-
+                hero_explain = gr.Markdown(value=_HERO[0])
+                hero_share = gr.Markdown(value=_HERO[3])
+                gr.Markdown("**Example presets** (click to load)")
                 with gr.Row():
-                    hero_explain = gr.Markdown(value=_HERO[0])
-                    hero_share = gr.Markdown(value=_HERO[3])
-
+                    for i, label in enumerate(PLAYGROUND_EXAMPLE_LABELS):
+                        b = gr.Button(label, size="sm")
+                        b.click(
+                            lambda idx=i: load_playground_example(idx),
+                            outputs=[hero_sql, hero_source, hero_target],
+                        )
+                # Visible labeled examples table (Textbox-friendly — not blank)
                 gr.Examples(
                     examples=PLAYGROUND_EXAMPLES,
                     inputs=[hero_sql, hero_source, hero_target],
-                    label="Try these (click → then Convert)",
-                    examples_per_page=5,
+                    label="Or click a row",
+                    example_labels=PLAYGROUND_EXAMPLE_LABELS,
                 )
-
                 hero_run.click(
                     run_hero_agent,
                     [hero_sql, hero_source, hero_target],
                     [hero_explain, hero_out, hero_badge, hero_share],
                 )
 
-            # ========== EVAL ==========
-            with gr.Tab("Eval"):
-                gr.Markdown(
-                    "ML-style benchmark on the bundled pair dataset "
-                    "(exact match · token F1 · fuzzy). Submit to the leaderboard."
-                )
+            with gr.Tab("AI Eval"):
                 with gr.Row():
-                    eval_limit = gr.Slider(10, 200, value=40, step=10, label="Pairs")
+                    eval_limit = gr.Slider(10, 300, value=60, step=10, label="Pairs")
                     eval_cat = gr.Dropdown(
                         ["all", "function", "date", "aggregate", "ddl", "ml_feature"],
                         value="all",
                         label="Category",
                     )
-                    eval_run = gr.Button("Run eval", variant="primary")
-                eval_summary = gr.Markdown("Run eval to score the hybrid translator.")
+                    eval_run = gr.Button("Run AI eval", variant="primary")
+                eval_summary = gr.Markdown("Run eval to score codegen.")
                 eval_detail = gr.Markdown("")
                 with gr.Row():
-                    lb_name = gr.Textbox(label="Handle", value="hf-visitor")
-                    lb_submit = gr.Button("Submit score")
+                    lb_name = gr.Textbox(label="Handle", value="hf-ai")
+                    lb_submit = gr.Button("Submit")
                 leaderboard_md = gr.Markdown(value=get_leaderboard_md())
                 eval_run.click(
                     run_eval_suite,
@@ -201,94 +196,79 @@ def _build_demo() -> gr.Blocks:
                 )
                 lb_submit.click(submit_eval_score, [lb_name, eval_state], [leaderboard_md])
 
-            # ========== ADVANCED LAB (lazy) ==========
             with gr.Tab("Advanced Lab"):
-                lab_status = gr.Markdown(
-                    "Click **Load lab** once to hydrate workbench / inspector / ML samples "
-                    "(kept lazy so the Space boots fast)."
-                )
-                lab_load = gr.Button("Load lab", variant="secondary")
-
+                lab_status = gr.Markdown("Load lab for workbench / ML samples.")
+                lab_load = gr.Button("Load AI lab", variant="secondary")
                 with gr.Tabs():
-                    with gr.Tab("Behavior RAG"):
+                    with gr.Tab("RAG"):
                         rag_q = gr.Textbox(
-                            label="Ask about platform behavior",
-                            value="How do empty strings and NULL differ on Oracle vs Snowflake?",
+                            value="Oracle empty string vs Snowflake NULL",
                             lines=2,
                         )
                         with gr.Row():
                             rag_source = gr.Dropdown(SOURCE_CHOICES, value="oracle", label="From")
                             rag_target = gr.Dropdown(TARGET_CHOICES, value="snowflake", label="To")
                             rag_run = gr.Button("Retrieve", variant="primary")
-                        rag_out = gr.Markdown("Load lab or click Retrieve.")
-                        rag_run.click(run_behavior_rag, [rag_q, rag_source, rag_target], [rag_out])
-
-                    with gr.Tab("ML Feature SQL"):
-                        feat_src = gr.Code(
-                            label="Legacy feature SQL",
-                            language="sql",
-                            value="",
-                            lines=12,
-                            interactive=False,
+                        rag_out = gr.Markdown("")
+                        rag_run.click(
+                            run_behavior_rag,
+                            [rag_q, rag_source, rag_target],
+                            [rag_out],
                         )
+                    with gr.Tab("ML Features"):
+                        feat_src = gr.Code(language="sql", value="", lines=8)
                         feat_target = gr.Dropdown(
                             ["snowflake", "dbt-snowflake"],
                             value="dbt-snowflake",
-                            label="Target",
                         )
-                        feat_run = gr.Button("Migrate features", variant="primary")
+                        feat_run = gr.Button("Migrate", variant="primary")
                         feat_md = gr.Markdown("")
-                        feat_out = gr.Code(
-                            label="Migrated features / dbt mart",
-                            language="sql",
-                            lines=12,
-                            interactive=False,
-                            value="",
+                        feat_out = gr.Code(language="sql", lines=8, value="")
+                        feat_run.click(
+                            run_feature_migration,
+                            [feat_target],
+                            [feat_md, feat_out],
                         )
-                        feat_run.click(run_feature_migration, [feat_target], [feat_md, feat_out])
-
-                    with gr.Tab("Object Inspector"):
+                    with gr.Tab("Inspector"):
+                        sql_input = gr.Code(language="sql", value=HERO_EXAMPLE, lines=8)
                         with gr.Row():
-                            sql_input = gr.Code(label="Source SQL", language="sql", value="", lines=12)
-                            with gr.Column(min_width=200):
-                                obj_source = gr.Dropdown(SOURCE_CHOICES, value="vertica", label="From")
-                                obj_target = gr.Dropdown(TARGET_CHOICES, value="snowflake", label="To")
-                                obj_analyze = gr.Button("Assess & Convert", variant="primary")
-                                obj_risk_badge = gr.Textbox(label="Score", interactive=False, value="")
+                            obj_source = gr.Dropdown(SOURCE_CHOICES, value="vertica")
+                            obj_target = gr.Dropdown(TARGET_CHOICES, value="snowflake")
+                            obj_analyze = gr.Button("Assess", variant="primary")
                         obj_analysis = gr.Markdown("")
-                        obj_risk_chart = gr.Plot(label="Risk")
-                        obj_converted = gr.Code(
-                            label="Output", language="sql", lines=10, interactive=False, value=""
-                        )
+                        obj_risk_chart = gr.Plot()
+                        obj_risk_badge = gr.Textbox(interactive=False)
+                        obj_converted = gr.Code(language="sql", lines=6, value="")
                         obj_notes = gr.Markdown("")
                         obj_analyze.click(
                             analyze_sql_object,
                             [sql_input, obj_source, obj_target],
-                            [obj_analysis, obj_risk_chart, obj_risk_badge, obj_converted, obj_notes],
+                            [
+                                obj_analysis,
+                                obj_risk_chart,
+                                obj_risk_badge,
+                                obj_converted,
+                                obj_notes,
+                            ],
                         )
-
                     with gr.Tab("Workbench"):
+                        repo_upload = gr.File(file_types=[".zip"], type="filepath")
+                        use_sample = gr.Checkbox(value=True, label="Sample repo")
                         with gr.Row():
-                            repo_upload = gr.File(
-                                label="Zip upload", file_types=[".zip"], type="filepath"
-                            )
-                            use_sample = gr.Checkbox(label="Sample Vertica repo", value=True)
-                        with gr.Row():
-                            wb_source = gr.Dropdown(SOURCE_CHOICES, value="vertica", label="From")
-                            wb_target = gr.Dropdown(TARGET_CHOICES, value="snowflake", label="To")
-                            wb_run = gr.Button("Run scan", variant="primary")
+                            wb_source = gr.Dropdown(SOURCE_CHOICES, value="vertica")
+                            wb_target = gr.Dropdown(TARGET_CHOICES, value="snowflake")
+                            wb_run = gr.Button("Scan", variant="primary")
                         wb_summary = gr.Markdown("")
-                        wb_metrics = gr.Markdown("")
-                        with gr.Row():
-                            wb_risk = gr.Plot(label="Risk")
-                            wb_dist = gr.Plot(label="Distribution")
                         wb_objects = gr.Markdown("")
                         wb_rational = gr.Markdown("")
                         wb_runbook = gr.Markdown("")
                         wb_dbt = gr.Markdown("")
                         wb_validation = gr.Markdown("")
-                        wb_lineage = gr.Plot(label="Lineage")
-                        wb_json = gr.Code(language="json", lines=8, label="Export", value="")
+                        wb_metrics = gr.Markdown("")
+                        wb_risk = gr.Plot()
+                        wb_dist = gr.Plot()
+                        wb_lineage = gr.Plot()
+                        wb_json = gr.Code(language="json", lines=5, value="")
                         wb_run.click(
                             run_migration_workbench,
                             [repo_upload, use_sample, wb_source, wb_target],
@@ -307,63 +287,42 @@ def _build_demo() -> gr.Blocks:
                                 report_state,
                             ],
                         )
-
-                    with gr.Tab("Copilot"):
-                        copilot_context = gr.Markdown("Load lab or run Workbench for scan context.")
-                        copilot_chatbot = gr.Chatbot(
-                            label="Copilot",
-                            height=320,
-                            value=[{
-                                "role": "assistant",
-                                "content": "Ask migration questions. Set HF_TOKEN for full LLM mode.",
-                            }],
+                    with gr.Tab("Context"):
+                        copilot_context = gr.Markdown(
+                            "Load lab / run workbench for context."
                         )
-                        with gr.Row():
-                            copilot_input = gr.Textbox(
-                                label="Message",
-                                placeholder="What should we migrate first?",
-                                scale=4,
-                            )
-                            copilot_send = gr.Button("Send", variant="primary", scale=1)
-                        copilot_sql = gr.Code(label="Optional SQL", language="sql", lines=4, value="")
-                        with gr.Row():
-                            copilot_source = gr.Dropdown(SOURCE_CHOICES, value="vertica", label="From")
-                            copilot_target = gr.Dropdown(TARGET_CHOICES, value="snowflake", label="To")
-                        report_state.change(report_to_context, [report_state], [copilot_context])
-                        cin = [
-                            copilot_input,
-                            copilot_chatbot,
-                            report_state,
-                            copilot_sql,
-                            copilot_source,
-                            copilot_target,
-                        ]
-                        copilot_send.click(copilot_chat, cin, [copilot_chatbot, copilot_input])
-                        copilot_input.submit(copilot_chat, cin, [copilot_chatbot, copilot_input])
+
+                def _load():
+                    s = _sample()
+                    f = run_feature_migration("dbt-snowflake")
+                    return (
+                        report_to_context(s[11]),
+                        s[0],
+                        s[1],
+                        s[6],
+                        s[7],
+                        s[8],
+                        s[9],
+                        s[10],
+                        s[11],
+                        f[0],
+                        f[1],
+                        _FEATURE_SRC,
+                        "AI lab ready",
+                    )
 
                 lab_load.click(
-                    load_advanced_lab,
-                    inputs=[],
+                    _load,
                     outputs=[
                         copilot_context,
                         wb_summary,
+                        wb_objects,
                         wb_metrics,
                         wb_risk,
                         wb_dist,
-                        wb_objects,
-                        wb_rational,
-                        wb_runbook,
-                        wb_dbt,
-                        wb_validation,
                         wb_lineage,
                         wb_json,
                         report_state,
-                        obj_analysis,
-                        obj_risk_chart,
-                        obj_risk_badge,
-                        obj_converted,
-                        obj_notes,
-                        sql_input,
                         feat_md,
                         feat_out,
                         feat_src,
@@ -372,11 +331,10 @@ def _build_demo() -> gr.Blocks:
                 )
 
         gr.Markdown(
-            f"<p class='footer-viral'>{__product_name__} v{__version__} · Apache 2.0 · "
-            "<a href='https://github.com/dgvj-work/sql_shift_ai'>GitHub</a> · "
-            "Duplicate this Space and paste your SQL</p>"
+            f"<p class='footer-viral'>{__product_name__} v{__version__} · AI Agent · "
+            "Hub downloads: risk_classifier.joblib · "
+            "<a href='https://github.com/dgvj-work/sql_shift_ai'>GitHub</a></p>"
         )
-
     return demo
 
 

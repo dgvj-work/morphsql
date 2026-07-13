@@ -1,53 +1,41 @@
 ---
-title: SQLShiftAI
-emoji: zap
-colorFrom: yellow
-colorTo: blue
+title: MorphSQL
+emoji: robot
+colorFrom: blue
+colorTo: purple
 sdk: gradio
 sdk_version: "4.44.0"
 app_file: app.py
 pinned: true
 license: apache-2.0
-short_description: Paste legacy SQL → Snowflake / dbt / BigQuery in one click
+short_description: AI agent that morphs legacy SQL into Snowflake, BigQuery, or dbt
 tags:
   - agent
   - agents
   - llm
+  - chat
   - code
   - text-generation
+  - text-classification
   - sql
   - rag
+  - sklearn
   - evaluation
-  - snowflake
-  - dbt
   - machine-learning
 ---
 
-# SQLShiftAI — convert legacy SQL in one click
+# MorphSQL — AI SQL Migration Agent
 
-**Before → After playground.** Paste Vertica / Oracle / Redshift / BigQuery SQL and get Snowflake, dbt, or BigQuery — with confidence, behavior RAG, and optional dbt project emission.
+**Morph** legacy Vertica / Oracle / Redshift / BigQuery SQL into Snowflake, BigQuery, or a dbt project.
 
-## 30-second demo
-1. Stay on **Playground** (already open)
-2. Click an example under the editors **or** hit **Convert with Agent**
-3. Read the AFTER panel + share blurb
+Chat with an AI agent that calls tools: convert · risk classify · behavior RAG · emit dbt.
 
-No signup. Duplicate this Space and try your own SQL.
+## Try in 10 seconds
+1. Open **Playground** or **AI Agent**
+2. Click a **preset button** (not empty anymore)
+3. Hit **Convert** / **Send to agent**
 
-## Why this Space
-| Hook | Detail |
-|------|--------|
-| Instant wow | Side-by-side BEFORE / AFTER |
-| Agent framing | Hybrid rules + sqlglot + RAG (+ optional HF LLM) |
-| ML eval | Exact / token F1 / fuzzy + leaderboard |
-| Dataset | `datasets/vertica_snowflake_pairs.jsonl` (publishable to Hub) |
-| DS path | ML Feature SQL → dbt feature mart in Advanced Lab |
+## Why MorphSQL?
+Short, memorable, SQL-first name that HF users can search (`sql` + `morph` = dialect transform).
 
-## Tabs
-- **Playground** — the viral loop
-- **Eval** — benchmark the translator
-- **Advanced Lab** — RAG, ML features, inspector, repo workbench, copilot (lazy-loaded)
-
-## Links
-- GitHub: https://github.com/dgvj-work/sql_shift_ai
-- Dataset publish: `python scripts/publish_dataset.py --repo <user>/vertica-snowflake-pairs`
+Package / repo remain `sqlshift-ai` for continuity.

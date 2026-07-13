@@ -7,7 +7,7 @@ DATASET_ID="${2:-dgvj-work/vertica-snowflake-pairs}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "Deploying SQLShiftAI SQL Migration Agent to Hugging Face..."
+echo "Deploying MorphSQL (AI SQL Migration Agent) to Hugging Face..."
 echo "  Space:   $SPACE_ID"
 echo "  Dataset: $DATASET_ID"
 echo ""
@@ -36,6 +36,11 @@ cp README_HF_SPACE.md "$STAGE/README.md"
 
 echo "Uploading Space: $SPACE_ID"
 hf upload "$SPACE_ID" "$STAGE" . --repo-type=space
+
+echo "Uploading model artifacts: $SPACE_ID (model repo)"
+hf upload "$SPACE_ID" "$ROOT/model" . --repo-type=model || {
+  echo "Model upload failed — create the model repo on HF first or login with write token."
+}
 
 echo ""
 echo "Publishing dataset: $DATASET_ID"

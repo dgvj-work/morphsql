@@ -1,18 +1,25 @@
-# SQLShiftAI
+# MorphSQL
 
-**SQL Migration Agent** — hybrid codegen, behavior RAG, eval suite, dbt emission, and ML feature SQL migration.
+**AI SQL Migration Agent** — chat agent, downloadable risk model, behavior RAG, hybrid codegen, dbt emission.
 
 [![GitHub](https://img.shields.io/badge/GitHub-dgvj--work%2Fsql__shift__ai-blue)](https://github.com/dgvj-work/sql_shift_ai)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 
-> Not a toy SQL converter. Paste legacy warehouse SQL and get conversion, risk, RAG explanations, optional dbt projects, and an eval harness built for Hugging Face.
+> Morph legacy warehouse SQL into Snowflake / BigQuery / dbt with an AI agent (`sqlshift-ai` package).
+
+```python
+from sqlshift.ai import pipeline
+print(pipeline("sql-risk-classification")("EXECUTE IMMEDIATE 'x'"))
+print(pipeline("sql-migration")("SELECT ZEROIFNULL(a) FROM t"))
+```
+
 
 ---
 
 ## What makes this different from SQL converters
 
-| Capability | SQL converters | SQLShiftAI |
+| Capability | SQL converters | MorphSQL |
 |-----------|----------------|-------------|
 | Single query translation | Yes | Yes |
 | **Repository-level discovery** | No | Yes |

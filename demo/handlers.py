@@ -495,12 +495,11 @@ def report_to_context(report_data: dict | MigrationReport | None) -> str:
     return f"### Active scan context\n\n{safe}"
 
 
-HERO_EXAMPLE = """SELECT
-    customer_id,
-    ZEROIFNULL(order_amount) AS order_amount,
-    NVL(discount, 0) AS discount
-FROM staging.orders
-WHERE order_date >= CURRENT_DATE - 30"""
+HERO_EXAMPLE = (
+    "SELECT customer_id, ZEROIFNULL(order_amount) AS order_amount, "
+    "NVL(discount, 0) AS discount FROM staging.orders "
+    "WHERE order_date >= CURRENT_DATE - 30"
+)
 
 FEATURE_SQL_PATH = Path(__file__).parent.parent / "examples" / "ml_features" / "churn_feature_sql.sql"
 
@@ -564,19 +563,28 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
 
     badge = f"{conf:.0f}% · {obj.risk_level.value} · {obj.complexity_score}/100"
     share = (
-        f"### Share this\n\n"
-        f"Converted **{source} → {target}** with SQLShiftAI in one click "
-        f"({conf:.0f}% conf). Hybrid rules + sqlglot + RAG"
-        f"{' + dbt project' if wants_dbt else ''}.\n\n"
-        f"Space: duplicate & try your SQL · "
+        f"**MorphSQL** converted `{source}` → `{target}` in one click "
+        f"({conf:.0f}% confidence).\n\n"
+        f"AI agent · hybrid codegen · behavior RAG"
+        f"{' · dbt project' if wants_dbt else ''}.\n\n"
+        f"[Duplicate the Space](https://huggingface.co/spaces) · "
         f"[GitHub](https://github.com/dgvj-work/sql_shift_ai)"
     )
     return "\n".join(explain), output, badge, share
 
 
+# One-line previews so Gradio example grids are never blank
+PLAYGROUND_EXAMPLE_LABELS = [
+    "Vertica ZEROIFNULL → Snowflake",
+    "Oracle NVL / SYSDATE → Snowflake",
+    "Redshift GETDATE → BigQuery",
+    "BigQuery STRING_AGG → Snowflake",
+    "Vertica procedure → dbt project",
+]
+
 PLAYGROUND_EXAMPLES = [
     [
-        HERO_EXAMPLE,
+        "SELECT customer_id, ZEROIFNULL(order_amount) AS order_amount, NVL(discount, 0) AS discount FROM staging.orders WHERE order_date >= CURRENT_DATE - 30",
         "vertica",
         "snowflake",
     ],
@@ -596,17 +604,51 @@ PLAYGROUND_EXAMPLES = [
         "snowflake",
     ],
     [
-        """CREATE OR REPLACE PROCEDURE p(load_date DATE) AS $$
-BEGIN
-  CREATE LOCAL TEMP TABLE tmp ON COMMIT PRESERVE ROWS AS
-  SELECT customer_id, ZEROIFNULL(amount) AS amount
-  FROM staging.orders WHERE order_date = load_date;
-  INSERT INTO analytics.daily SELECT * FROM tmp;
-END; $$;""",
+        "CREATE OR REPLACE PROCEDURE p(load_date DATE) AS $$ BEGIN CREATE LOCAL TEMP TABLE tmp ON COMMIT PRESERVE ROWS AS SELECT customer_id, ZEROIFNULL(amount) AS amount FROM staging.orders WHERE order_date = load_date; INSERT INTO analytics.daily SELECT * FROM tmp; END; $$;",
         "vertica",
         "dbt-snowflake",
     ],
 ]
+
+
+def load_playground_example(index: int) -> tuple[str, str, str]:
+    """Return (sql, source, target) for a preset example index."""
+    idx = max(0, min(int(index), len(PLAYGROUND_EXAMPLES) - 1))
+    sql, source, target = PLAYGROUND_EXAMPLES[idx]
+    return sql, source, target
+
+
+AGENT_PROMPTS = [
+    (
+        "Convert this SQL and predict migration risk",
+        PLAYGROUND_EXAMPLES[0][0],
+        "vertica",
+        "snowflake",
+    ),
+    (
+        "Emit a dbt project from this procedure",
+        PLAYGROUND_EXAMPLES[4][0],
+        "vertica",
+        "dbt-snowflake",
+    ),
+    (
+        "What NULL behavior differences matter for this SQL?",
+        "SELECT NVL(a, '') FROM dual",
+        "oracle",
+        "snowflake",
+    ),
+    (
+        "Score migration risk only",
+        "EXECUTE IMMEDIATE 'SELECT 1'",
+        "oracle",
+        "snowflake",
+    ),
+]
+
+
+def load_agent_example(index: int) -> tuple[str, str, str, str]:
+    idx = max(0, min(int(index), len(AGENT_PROMPTS) - 1))
+    return AGENT_PROMPTS[idx]
 
 
 def run_eval_suite(limit: int, category: str) -> tuple[str, str, dict]:

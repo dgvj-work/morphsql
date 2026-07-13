@@ -171,7 +171,7 @@ def _expand_pairs() -> list[dict]:
                 "notes": "ZEROIFNULL expansion",
             }
         )
-    for i in range(1, 41):
+    for i in range(1, 81):
         pairs.append(
             {
                 "id": f"agg_mix_{i}",
@@ -191,7 +191,7 @@ def _expand_pairs() -> list[dict]:
                 "notes": "Synthetic aggregate pair",
             }
         )
-    for i in range(1, 31):
+    for i in range(1, 61):
         pairs.append(
             {
                 "id": f"oracle_nvl_{i}",
@@ -203,7 +203,7 @@ def _expand_pairs() -> list[dict]:
                 "notes": "Oracle NVL expansion",
             }
         )
-    for i in range(1, 21):
+    for i in range(1, 51):
         pairs.append(
             {
                 "id": f"ml_feature_{i}",
@@ -221,6 +221,25 @@ def _expand_pairs() -> list[dict]:
                     f"GROUP BY 1"
                 ),
                 "notes": "ML feature window SQL",
+            }
+        )
+    # AI / LLM-eval oriented paraphrases
+    for i in range(1, 41):
+        pairs.append(
+            {
+                "id": f"ai_codegen_{i}",
+                "category": "function",
+                "source_dialect": "vertica",
+                "target_dialect": "snowflake",
+                "source_sql": (
+                    f"SELECT ZEROIFNULL(score_{i}), NVL(flag_{i}, 0) "
+                    f"FROM ml.inference_logs WHERE run_id = {i}"
+                ),
+                "target_sql": (
+                    f"SELECT COALESCE(score_{i}, 0), COALESCE(flag_{i}, 0) "
+                    f"FROM ml.inference_logs WHERE run_id = {i}"
+                ),
+                "notes": "AI inference-log SQL pair",
             }
         )
     return pairs

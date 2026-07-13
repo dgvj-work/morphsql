@@ -175,7 +175,35 @@ class TestTranslator:
         assert "COALESCE" in out.upper()
         assert "Confidence" in md or "%" in md or "VERTICA" in md.upper()
         assert "%" in badge
-        assert "Share" in share or "SQLShiftAI" in share
+        assert "Share" in share or "MorphSQL" in share or "morph" in share.lower()
+
+    def test_ai_risk_model_and_pipeline(self):
+        from sqlshift.ai import pipeline, train_and_save
+
+        train_and_save()
+        risk = pipeline("sql-risk-classification")
+        out = risk("CREATE PROCEDURE p AS BEGIN EXECUTE IMMEDIATE 'x'; END;")
+        assert out["label"] in {"low", "medium", "high"}
+        assert 0 <= out["score"] <= 1
+        mig = pipeline("sql-migration")(
+            "SELECT ZEROIFNULL(a) FROM t", source="vertica", target="snowflake"
+        )
+        assert "COALESCE" in mig["converted_sql"].upper()
+        assert "predict_risk" in mig["tools_used"] or mig["risk"]
+
+    def test_ai_chat_agent(self):
+        from sqlshift.ai.agent import chat_agent
+
+        history, msg, sql, badge = chat_agent(
+            "Convert this SQL and predict migration risk",
+            [],
+            "SELECT ZEROIFNULL(x) FROM t",
+            "vertica",
+            "snowflake",
+        )
+        assert len(history) >= 2
+        assert "COALESCE" in sql.upper()
+        assert msg == ""
 
     def test_cte_query_to_dbt_models(self):
         from sqlshift.dbt_generator.decomposer import decompose_to_dbt

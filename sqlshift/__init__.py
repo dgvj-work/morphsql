@@ -1,7 +1,7 @@
-"""SQLShiftAI — Data platform migration intelligence toolkit."""
+"""MorphSQL — AI SQL Migration Agent."""
 
-__version__ = "0.3.0"
-__product_name__ = "SQLShiftAI"
+__version__ = "0.4.0"
+__product_name__ = "MorphSQL"
 
 from sqlshift.models import (
     Dialect,

@@ -14,7 +14,7 @@ DEFAULT_MODEL = os.getenv(
     os.getenv("MIGRATIONIQ_MODEL", "Qwen/Qwen2.5-3B-Instruct"),
 )
 
-SYSTEM_PROMPT = """You are SQLShiftAI Copilot, an expert data platform migration advisor.
+SYSTEM_PROMPT = """You are MorphSQL Copilot, an expert data platform migration advisor.
 
 You help data engineers plan warehouse migrations (Vertica, Oracle, Redshift → Snowflake, dbt, BigQuery).
 

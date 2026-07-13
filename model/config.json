@@ -1,0 +1,31 @@
+{
+  "model_type": "sqlshift-ai-agent",
+  "task": "text-classification",
+  "labels": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "version": "0.3.0",
+  "description": "TF-IDF + LogisticRegression risk classifier for SQL migration",
+  "vertica_syntax_patterns": [
+    "\\bSEGMENTED\\s+BY\\s+HASH\\s*\\([^)]+\\)\\s*ALL\\s*NODES",
+    "\\bENCODED\\s+BY\\s+[^;\\n]+",
+    "\\bINCLUDE\\s+SCHEMA\\s+PRIVILEGES\\b",
+    "\\bON\\s+COMMIT\\s+PRESERVE\\s+ROWS\\b",
+    "\\bPROJECTION\\s+\\w+\\b",
+    "(CREATE\\s+(?:OR\\s+REPLACE\\s+)?(?:LOCAL\\s+TEMP|TEMP|TEMPORARY)?\\s*TABLE\\s+[\\w.]+\\s*\\([^;]+\\))\\s*ORDER\\s+BY[^;]+"
+  ],
+  "supported_sources": [
+    "vertica",
+    "oracle",
+    "redshift",
+    "bigquery",
+    "snowflake"
+  ],
+  "supported_targets": [
+    "snowflake",
+    "dbt-snowflake",
+    "bigquery"
+  ]
+}
