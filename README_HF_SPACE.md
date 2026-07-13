@@ -9,9 +9,10 @@ python_version: "3.11"
 app_file: app.py
 pinned: true
 license: apache-2.0
-short_description: Convert Vertica, Oracle, Redshift SQL to Snowflake, BigQuery, or dbt
+short_description: Convert Vertica/Oracle/Redshift/BigQuery SQL to pandas, Snowflake, or dbt
 tags:
   - sql
+  - pandas
   - code
   - agent
   - chat
@@ -31,27 +32,24 @@ suggested_hardware: cpu-basic
 
 # MorphSQL
 
-Convert legacy warehouse SQL (Vertica, Oracle, Redshift, BigQuery) into Snowflake, BigQuery, or a dbt project.
+**SQL → pandas** (primary), plus Snowflake / BigQuery / dbt.
 
-Built for data engineers migrating platforms — hybrid rewrite rules + sqlglot + a small risk classifier you can download from the Hub.
+Paste Vertica, Oracle, Redshift, BigQuery, or Snowflake SQL and get runnable Python pandas code — or keep warehouse SQL / dbt output.
 
 ## Try it
-1. Open **Playground**
-2. Click a preset (e.g. Vertica → Snowflake)
-3. See BEFORE / AFTER + confidence score
-4. Optional: chat with the agent, run eval, or download the risk model
+1. Open **Playground** (default target: **pandas**)
+2. Click a preset (Vertica / Oracle / Redshift / BigQuery / Snowflake → pandas)
+3. Copy the generated Python, fill `tables[...]`, run
 
-## Hub artifacts
-- **Space:** this demo
-- **Model:** [`dgvj-work/sqlshift-ai`](https://huggingface.co/dgvj-work/sqlshift-ai) (`risk_classifier.joblib`)
-- **Dataset:** [`dgvj-work/vertica-snowflake-pairs`](https://huggingface.co/datasets/dgvj-work/vertica-snowflake-pairs)
-- **Code:** [github.com/dgvj-work/sql_shift_ai](https://github.com/dgvj-work/sql_shift_ai)
+## Hub
+- Space: this demo
+- Model: [`dgvj-work/sqlshift-ai`](https://huggingface.co/dgvj-work/sqlshift-ai)
+- Dataset: [`dgvj-work/vertica-snowflake-pairs`](https://huggingface.co/datasets/dgvj-work/vertica-snowflake-pairs)
+- Code: [github.com/dgvj-work/sql_shift_ai](https://github.com/dgvj-work/sql_shift_ai)
 
-## Python
 ```python
 from sqlshift.ai import pipeline
-print(pipeline("sql-migration")("SELECT ZEROIFNULL(a) FROM t"))
-print(pipeline("sql-risk-classification")("EXECUTE IMMEDIATE 'x'"))
+print(pipeline("sql-migration")("SELECT ZEROIFNULL(a) FROM t", target="pandas"))
 ```
 
 Author: Digvijay Waghela · Apache-2.0

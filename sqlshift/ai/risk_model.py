@@ -111,7 +111,7 @@ def train_and_save(model_dir: Path | None = None, *, force: bool = False) -> Pat
         "description": "TF-IDF + LogisticRegression risk classifier for SQL migration",
         "vertica_syntax_patterns": [p for p, _ in VERTICA_SYNTAX_REPLACEMENTS],
         "supported_sources": ["vertica", "oracle", "redshift", "bigquery", "snowflake"],
-        "supported_targets": ["snowflake", "dbt-snowflake", "bigquery"],
+        "supported_targets": ["pandas", "snowflake", "dbt-snowflake", "bigquery"],
     }
     (model_dir / "config.json").write_text(json.dumps(rules, indent=2), encoding="utf-8")
     (model_dir / "rewrite_vocabulary.json").write_text(

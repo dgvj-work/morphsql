@@ -30,13 +30,13 @@ from demo.handlers import (
 from demo.theme import CUSTOM_CSS, build_theme
 
 SOURCE_CHOICES = ["vertica", "oracle", "redshift", "bigquery", "snowflake"]
-TARGET_CHOICES = ["snowflake", "dbt-snowflake", "bigquery"]
+TARGET_CHOICES = ["pandas", "snowflake", "dbt-snowflake", "bigquery"]
 SPACE_URL = "https://huggingface.co/spaces/dgvj-work/sqlshift-ai"
 
 ensure_pairs_file()
 train_and_save()  # no-op if model/risk_classifier.joblib already exists
 
-_HERO = run_hero_agent(HERO_EXAMPLE, "vertica", "snowflake")
+_HERO = run_hero_agent(HERO_EXAMPLE, "vertica", "pandas")
 _RISK = pipeline("sql-risk-classification")(HERO_EXAMPLE)
 _FEATURE_SRC = (
     FEATURE_SQL_PATH.read_text(encoding="utf-8") if FEATURE_SQL_PATH.exists() else HERO_EXAMPLE
@@ -59,10 +59,10 @@ def _build_demo() -> gr.Blocks:
         gr.HTML(
             f"""
             <div class="header-block hero-viral">
-                <div class="eyebrow">VERTICA · ORACLE · REDSHIFT · BIGQUERY → SNOWFLAKE · DBT</div>
+                <div class="eyebrow">SQL → PANDAS · SNOWFLAKE · BIGQUERY · DBT</div>
                 <h1>{__product_name__}</h1>
-                <p>Paste legacy SQL, pick a target, get Snowflake / BigQuery / dbt output with
-                confidence and risk. Duplicate this Space to try your own queries.</p>
+                <p>Paste warehouse SQL from Vertica, Oracle, Redshift, BigQuery, or Snowflake —
+                get runnable <strong>pandas</strong> Python (or Snowflake / dbt). Duplicate this Space to try your queries.</p>
             </div>
             """
         )
@@ -75,7 +75,7 @@ def _build_demo() -> gr.Blocks:
                 )
                 with gr.Row():
                     hero_source = gr.Dropdown(SOURCE_CHOICES, value="vertica", label="From")
-                    hero_target = gr.Dropdown(TARGET_CHOICES, value="snowflake", label="To")
+                    hero_target = gr.Dropdown(TARGET_CHOICES, value="pandas", label="To")
                     hero_run = gr.Button("Convert", variant="primary")
                     hero_badge = gr.Textbox(label="Score", value=_HERO[2], interactive=False)
                 with gr.Row():
@@ -86,7 +86,7 @@ def _build_demo() -> gr.Blocks:
                         max_lines=24,
                     )
                     hero_out = gr.Textbox(
-                        label="AFTER · converted output",
+                        label="AFTER · pandas / SQL / dbt",
                         lines=10,
                         max_lines=24,
                         value=_HERO[1],
@@ -123,7 +123,7 @@ def _build_demo() -> gr.Blocks:
                 )
                 with gr.Row():
                     ag_source = gr.Dropdown(SOURCE_CHOICES, value="vertica", label="From")
-                    ag_target = gr.Dropdown(TARGET_CHOICES, value="snowflake", label="To")
+                    ag_target = gr.Dropdown(TARGET_CHOICES, value="pandas", label="To")
                     ag_badge = gr.Textbox(
                         label="Risk model",
                         value=f"{_RISK['label']} · {_RISK['score']:.2f}",
@@ -149,7 +149,7 @@ def _build_demo() -> gr.Blocks:
                 with gr.Row():
                     ag_msg = gr.Textbox(
                         label="Message",
-                        value="Convert this SQL and predict migration risk",
+                        value="Convert this SQL to pandas and predict migration risk",
                         scale=4,
                         lines=2,
                     )

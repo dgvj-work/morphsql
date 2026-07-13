@@ -23,6 +23,7 @@ DIALECT_MAP = {
     Dialect.BIGQUERY: "bigquery",
     Dialect.REDSHIFT: "redshift",
     Dialect.DBT_SNOWFLAKE: "snowflake",
+    Dialect.PANDAS: "postgres",
 }
 
 

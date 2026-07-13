@@ -15,6 +15,7 @@ class Dialect(str, Enum):
     BIGQUERY = "bigquery"
     REDSHIFT = "redshift"
     DBT_SNOWFLAKE = "dbt-snowflake"
+    PANDAS = "pandas"
 
 
 class ObjectType(str, Enum):

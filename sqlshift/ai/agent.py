@@ -12,6 +12,7 @@ from sqlshift.dbt_generator.decomposer import decompose_to_dbt, format_dbt_proje
 from sqlshift.intelligence.rag import get_rag
 from sqlshift.models import Dialect, MigrationObject, ObjectType
 from sqlshift.translator.engine import translate_sql
+from sqlshift.translator.pandas_codegen import is_pandas_target
 
 
 @dataclass
@@ -137,6 +138,9 @@ class SQLMigrationAgent:
         wants_convert = bool(
             re.search(r"\bconvert\b|\bmigrate\b|\btranslate\b|\btransform\b", p) or sql
         )
+        if re.search(r"\bpandas\b|\bdataframe\b|\bpython\b", p):
+            # still convert; target dropdown should be pandas
+            return "full"
         if re.search(r"\bdbt\b|feature mart", p):
             return "dbt"
         if wants_convert and re.search(r"\brisk\b|complex|score|explain|null|behavior", p):
@@ -153,7 +157,12 @@ class SQLMigrationAgent:
 
     def _tool_convert(self, sql: str, source: str, target: str):
         source_d = Dialect(source)
-        target_d = Dialect("snowflake" if is_dbt_target(target) else target)
+        if is_pandas_target(target):
+            target_d = Dialect.PANDAS
+        elif is_dbt_target(target):
+            target_d = Dialect.SNOWFLAKE
+        else:
+            target_d = Dialect(target)
         return translate_sql(sql, source_d, target_d)
 
     def _tool_risk(self, sql: str) -> dict[str, Any]:

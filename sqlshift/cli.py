@@ -34,6 +34,7 @@ class SourceDialect(str, Enum):
 
 
 class TargetDialect(str, Enum):
+    pandas = "pandas"
     snowflake = "snowflake"
     dbt_snowflake = "dbt-snowflake"
     bigquery = "bigquery"
@@ -53,7 +54,7 @@ def main():
 def analyze(
     path: str = typer.Argument(..., help="Path to SQL repository (directory or .zip)"),
     source: SourceDialect = typer.Option(SourceDialect.vertica, "--source", "-s"),
-    target: TargetDialect = typer.Option(TargetDialect.snowflake, "--target", "-t"),
+    target: TargetDialect = typer.Option(TargetDialect.pandas, "--target", "-t"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory"),
 ):
     """Analyze a legacy SQL repository for migration complexity and risk."""
@@ -96,7 +97,7 @@ def analyze(
 def convert(
     path: str = typer.Argument(..., help="Path to SQL file or repository"),
     source: SourceDialect = typer.Option(SourceDialect.vertica, "--source", "-s"),
-    target: TargetDialect = typer.Option(TargetDialect.snowflake, "--target", "-t"),
+    target: TargetDialect = typer.Option(TargetDialect.pandas, "--target", "-t"),
     output: Optional[str] = typer.Option(None, "--output", "-o"),
     generate_tests: bool = typer.Option(False, "--generate-tests"),
     generate_lineage: bool = typer.Option(False, "--generate-lineage"),
@@ -169,7 +170,7 @@ def convert(
 def validate(
     path: str = typer.Argument(..., help="Path to SQL repository"),
     source: SourceDialect = typer.Option(SourceDialect.vertica, "--source", "-s"),
-    target: TargetDialect = typer.Option(TargetDialect.snowflake, "--target", "-t"),
+    target: TargetDialect = typer.Option(TargetDialect.pandas, "--target", "-t"),
     tolerance: float = typer.Option(0.01, "--tolerance"),
     output: Optional[str] = typer.Option(None, "--output", "-o"),
 ):
@@ -204,7 +205,7 @@ def validate(
 def migrate_cmd(
     path: str = typer.Argument(..., help="Path to SQL repository"),
     source: SourceDialect = typer.Option(SourceDialect.vertica, "--source", "-s"),
-    target: TargetDialect = typer.Option(TargetDialect.snowflake, "--target", "-t"),
+    target: TargetDialect = typer.Option(TargetDialect.pandas, "--target", "-t"),
     output: str = typer.Option("migration-output", "--output", "-o"),
 ):
     """Run the complete migration pipeline: analyze → convert → validate → report."""

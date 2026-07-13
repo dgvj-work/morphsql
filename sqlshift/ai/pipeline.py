@@ -8,6 +8,7 @@ from sqlshift.ai.agent import SQLMigrationAgent
 from sqlshift.ai.risk_model import get_risk_model
 from sqlshift.models import Dialect
 from sqlshift.translator.engine import translate_sql
+from sqlshift.translator.pandas_codegen import is_pandas_target
 
 
 def pipeline(task: str = "sql-migration", **kwargs):
@@ -16,13 +17,13 @@ def pipeline(task: str = "sql-migration", **kwargs):
 
     Examples:
         pipe = pipeline("sql-migration")
-        pipe("SELECT ZEROIFNULL(a) FROM t", source="vertica", target="snowflake")
+        pipe("SELECT ZEROIFNULL(a) FROM t", source="vertica", target="pandas")
 
         pipe = pipeline("sql-risk-classification")
         pipe("CREATE PROCEDURE ...")
     """
     task = (task or "sql-migration").lower().replace("_", "-")
-    if task in {"sql-migration", "sql-translation", "text2sql-migration"}:
+    if task in {"sql-migration", "sql-translation", "text2sql-migration", "sql-to-pandas"}:
         return SQLMigrationPipeline(**kwargs)
     if task in {"sql-risk-classification", "text-classification", "risk"}:
         return SQLRiskPipeline(**kwargs)
@@ -32,7 +33,7 @@ def pipeline(task: str = "sql-migration", **kwargs):
 
 
 class SQLMigrationPipeline:
-    def __init__(self, source: str = "vertica", target: str = "snowflake"):
+    def __init__(self, source: str = "vertica", target: str = "pandas"):
         self.source = source
         self.target = target
         self.agent = SQLMigrationAgent()
@@ -59,11 +60,15 @@ class SQLRiskPipeline:
         return self.model.predict(sql)
 
 
-def migrate_sql(sql: str, source: str = "vertica", target: str = "snowflake") -> dict[str, Any]:
+def migrate_sql(sql: str, source: str = "vertica", target: str = "pandas") -> dict[str, Any]:
     """One-liner helper used in model card examples."""
-    out_sql, conf, auto, review = translate_sql(sql, Dialect(source), Dialect(
-        "snowflake" if target == "dbt-snowflake" else target
-    ))
+    if is_pandas_target(target):
+        out_target = Dialect.PANDAS
+    elif target == "dbt-snowflake":
+        out_target = Dialect.SNOWFLAKE
+    else:
+        out_target = Dialect(target)
+    out_sql, conf, auto, review = translate_sql(sql, Dialect(source), out_target)
     risk = get_risk_model().predict(sql)
     return {
         "converted_sql": out_sql,

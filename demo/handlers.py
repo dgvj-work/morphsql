@@ -19,6 +19,7 @@ from sqlshift.lineage.builder import build_lineage_graph
 from sqlshift.models import Dialect, MigrationObject, MigrationReport, ObjectType
 from sqlshift.pipeline import MigrationPipeline
 from sqlshift.translator.engine import translate_sql
+from sqlshift.translator.pandas_codegen import is_pandas_target
 from demo.theme import C_MUTED, C_PANEL, C_TEXT
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "vertica_legacy"
@@ -352,7 +353,13 @@ def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figu
 
         source_d = Dialect(source)
         wants_dbt = is_dbt_target(target)
-        target_d = Dialect("snowflake" if wants_dbt else target)
+        wants_pandas = is_pandas_target(target)
+        if wants_dbt:
+            target_d = Dialect.SNOWFLAKE
+        elif wants_pandas:
+            target_d = Dialect.PANDAS
+        else:
+            target_d = Dialect(target)
 
         # Infer object type for better dbt decomposition
         obj_type = ObjectType.SQL_SCRIPT
@@ -361,10 +368,11 @@ def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figu
         elif re.search(r"\bCREATE\s+(?:OR\s+REPLACE\s+)?VIEW\b", sql, re.I):
             obj_type = ObjectType.VIEW
 
+        score_target = Dialect.SNOWFLAKE if wants_pandas else target_d
         obj = MigrationObject(name="input_object", object_type=obj_type, source_sql=sql)
-        obj = score_object(obj, source_d, target_d)
+        obj = score_object(obj, source_d, score_target)
         complexity = count_sql_complexity(sql, source_d)
-        unsupported = detect_unsupported_features(sql, source_d, target_d)
+        unsupported = detect_unsupported_features(sql, source_d, score_target)
         rules = extract_business_rules(sql)
         incremental = generate_incremental_strategy(sql)
 
@@ -515,16 +523,24 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
     sql = sql or HERO_EXAMPLE
     source_d = Dialect(source)
     wants_dbt = is_dbt_target(target)
-    target_d = Dialect("snowflake" if wants_dbt else target)
+    wants_pandas = is_pandas_target(target)
+    if wants_dbt:
+        target_d = Dialect.SNOWFLAKE
+    elif wants_pandas:
+        target_d = Dialect.PANDAS
+    else:
+        target_d = Dialect(target)
 
     converted, conf, auto, review = translate_sql(sql, source_d, target_d)
+    # Risk scoring uses a SQL target dialect when emitting pandas
+    score_target = Dialect.SNOWFLAKE if wants_pandas else target_d
     obj = MigrationObject(
         name="hero_query",
         object_type=ObjectType.SQL_SCRIPT,
         source_sql=sql,
         target_sql=converted,
     )
-    obj = score_object(obj, source_d, target_d)
+    obj = score_object(obj, source_d, score_target)
 
     output = converted
     if wants_dbt:
@@ -532,12 +548,13 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
         output = format_dbt_project(files, max_files=12)
 
     rag = get_rag()
-    hits = rag.retrieve(sql, top_k=3, source=source, target=target if not wants_dbt else "snowflake")
+    rag_target = "snowflake" if (wants_dbt or wants_pandas) else target
+    hits = rag.retrieve(sql, top_k=3, source=source, target=rag_target)
 
     # Diff highlights for viral before/after readability
     highlights: list[str] = []
-    for a in auto[:8]:
-        if "→" in a or "Date" in a or "Dialect" in a or "Removed" in a or "Converted" in a:
+    for a in auto[:10]:
+        if "→" in a or "Date" in a or "Dialect" in a or "Removed" in a or "Converted" in a or "pandas" in a.lower() or "SELECT" in a or "WHERE" in a or "JOIN" in a or "GROUP" in a:
             highlights.append(f"- {a}")
 
     explain = [
@@ -547,6 +564,9 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
         f"({obj.complexity_score}/100)",
         "",
     ]
+    if wants_pandas:
+        explain.append("Output is **Python pandas** code. Fill `tables[...]` with your DataFrames, then run.")
+        explain.append("")
     if highlights:
         explain.append("**Key rewrites**")
         explain.extend(highlights)
@@ -555,7 +575,7 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
         explain.append("**Needs review**")
         explain.extend(f"- {r}" for r in review[:5])
         explain.append("")
-    if hits:
+    if hits and not wants_pandas:
         explain.append("**Behavior RAG**")
         for h in hits[:3]:
             explain.append(f"- **{h.name}**: {h.recommendation}")
@@ -563,10 +583,10 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
 
     badge = f"{conf:.0f}% · {obj.risk_level.value} · {obj.complexity_score}/100"
     space_url = "https://huggingface.co/spaces/dgvj-work/sqlshift-ai"
+    kind = "pandas" if wants_pandas else ("dbt project" if wants_dbt else "SQL")
     share = (
-        f"Converted **{source} → {target}** with **MorphSQL** "
-        f"({conf:.0f}% confidence)"
-        f"{' · dbt project' if wants_dbt else ''}.\n\n"
+        f"Converted **{source} → {target}** ({kind}) with **MorphSQL** "
+        f"({conf:.0f}% confidence).\n\n"
         f"Try it / duplicate: [{space_url}]({space_url})\n"
         f"Model: [dgvj-work/sqlshift-ai](https://huggingface.co/dgvj-work/sqlshift-ai) · "
         f"[GitHub](https://github.com/dgvj-work/sql_shift_ai)"
@@ -576,32 +596,44 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
 
 # One-line previews so Gradio example grids are never blank
 PLAYGROUND_EXAMPLE_LABELS = [
-    "Vertica ZEROIFNULL → Snowflake",
-    "Oracle NVL / SYSDATE → Snowflake",
-    "Redshift GETDATE → BigQuery",
-    "BigQuery STRING_AGG → Snowflake",
-    "Vertica procedure → dbt project",
+    "Vertica → pandas (ZEROIFNULL)",
+    "Oracle → pandas (NVL / SYSDATE)",
+    "Redshift → pandas (GETDATE)",
+    "BigQuery → pandas (IFNULL)",
+    "Snowflake → pandas (COALESCE)",
+    "Vertica → Snowflake SQL",
+    "Vertica procedure → dbt",
 ]
 
 PLAYGROUND_EXAMPLES = [
     [
         "SELECT customer_id, ZEROIFNULL(order_amount) AS order_amount, NVL(discount, 0) AS discount FROM staging.orders WHERE order_date >= CURRENT_DATE - 30",
         "vertica",
-        "snowflake",
+        "pandas",
     ],
     [
-        "SELECT NVL(amount, 0), SYSDATE FROM dual WHERE ROWNUM <= 10",
+        "SELECT NVL(amount, 0) AS amount, SYSDATE AS ts FROM dual",
         "oracle",
-        "snowflake",
+        "pandas",
     ],
     [
-        "SELECT GETDATE(), LISTAGG(name, ',') FROM users GROUP BY 1",
+        "SELECT GETDATE() AS ts, name FROM users WHERE id > 1 LIMIT 5",
         "redshift",
-        "bigquery",
+        "pandas",
     ],
     [
-        "SELECT IFNULL(a, 0), STRING_AGG(b, ',') FROM t GROUP BY a",
+        "SELECT IFNULL(a, 0) AS a, b FROM t WHERE a IS NOT NULL",
         "bigquery",
+        "pandas",
+    ],
+    [
+        "SELECT COALESCE(x, 0) AS x, dept FROM analytics.facts WHERE dt >= CURRENT_DATE",
+        "snowflake",
+        "pandas",
+    ],
+    [
+        "SELECT customer_id, ZEROIFNULL(order_amount) AS order_amount FROM staging.orders",
+        "vertica",
         "snowflake",
     ],
     [
@@ -628,26 +660,26 @@ def load_and_convert_example(index: int) -> tuple[str, str, str, str, str, str, 
 
 AGENT_PROMPTS = [
     (
-        "Convert this SQL and predict migration risk",
+        "Convert this SQL to pandas and predict risk",
         PLAYGROUND_EXAMPLES[0][0],
         "vertica",
-        "snowflake",
+        "pandas",
+    ),
+    (
+        "Convert Oracle SQL to pandas",
+        PLAYGROUND_EXAMPLES[1][0],
+        "oracle",
+        "pandas",
     ),
     (
         "Emit a dbt project from this procedure",
-        PLAYGROUND_EXAMPLES[4][0],
+        PLAYGROUND_EXAMPLES[6][0],
         "vertica",
         "dbt-snowflake",
     ),
     (
         "What NULL behavior differences matter for this SQL?",
         "SELECT NVL(a, '') FROM dual",
-        "oracle",
-        "snowflake",
-    ),
-    (
-        "Score migration risk only",
-        "EXECUTE IMMEDIATE 'SELECT 1'",
         "oracle",
         "snowflake",
     ),

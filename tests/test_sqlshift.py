@@ -206,6 +206,83 @@ class TestTranslator:
         assert "COALESCE" in sql.upper()
         assert msg == ""
 
+    def test_sql_to_pandas_from_each_source(self):
+        import pandas as pd
+
+        cases = [
+            (
+                Dialect.VERTICA,
+                "SELECT customer_id, ZEROIFNULL(order_amount) AS order_amount, "
+                "NVL(discount, 0) AS discount FROM staging.orders "
+                "WHERE order_date >= CURRENT_DATE - 30",
+                "staging.orders",
+                {
+                    "customer_id": [1, 2],
+                    "order_amount": [None, 10.0],
+                    "discount": [None, 1.0],
+                    "order_date": [pd.Timestamp.today(), pd.Timestamp.today()],
+                },
+            ),
+            (
+                Dialect.ORACLE,
+                "SELECT NVL(amount, 0) AS amount, SYSDATE AS ts FROM dual",
+                None,
+                None,
+            ),
+            (
+                Dialect.REDSHIFT,
+                "SELECT GETDATE() AS ts, name FROM users WHERE id > 1 LIMIT 5",
+                "users",
+                {"ts": [1, 2], "name": ["a", "b"], "id": [1, 3]},
+            ),
+            (
+                Dialect.BIGQUERY,
+                "SELECT IFNULL(a, 0) AS a, b FROM t WHERE a IS NOT NULL",
+                "t",
+                {"a": [None, 2], "b": [9, 8]},
+            ),
+            (
+                Dialect.SNOWFLAKE,
+                "SELECT COALESCE(x, 0) AS x FROM analytics.facts WHERE dt >= CURRENT_DATE",
+                "analytics.facts",
+                {"x": [None, 5], "dt": [pd.Timestamp.today(), pd.Timestamp.today()]},
+            ),
+        ]
+        for source, sql, table_key, frame in cases:
+            code, conf, auto, _review = translate_sql(sql, source, Dialect.PANDAS)
+            assert conf >= 50
+            assert "import pandas as pd" in code
+            assert "result" in code
+            assert any("pandas" in a.lower() or "→" in a for a in auto)
+            ns: dict = {"pd": pd, "np": __import__("numpy")}
+            if table_key and frame is not None:
+                ns["tables"] = {table_key: pd.DataFrame(frame)}
+            else:
+                ns["tables"] = {}
+            exec(code, ns, ns)
+            assert isinstance(ns["result"], pd.DataFrame)
+
+    def test_hero_agent_pandas_primary(self):
+        from demo.handlers import run_hero_agent
+
+        md, out, badge, share = run_hero_agent(
+            "SELECT ZEROIFNULL(a) AS a FROM t",
+            "vertica",
+            "pandas",
+        )
+        assert "import pandas as pd" in out
+        assert "fillna" in out or "tables[" in out
+        assert "pandas" in share.lower()
+        assert "%" in badge
+        assert "PANDAS" in md.upper()
+
+    def test_is_pandas_target(self):
+        from sqlshift.translator.pandas_codegen import is_pandas_target
+
+        assert is_pandas_target("pandas")
+        assert is_pandas_target(Dialect.PANDAS)
+        assert not is_pandas_target("snowflake")
+
     def test_cte_query_to_dbt_models(self):
         from sqlshift.dbt_generator.decomposer import decompose_to_dbt
 
@@ -243,12 +320,15 @@ class TestTranslator:
             Dialect.BIGQUERY: "SELECT IFNULL(a, 0) AS x, STRING_AGG(b, ',') FROM t GROUP BY a",
             Dialect.SNOWFLAKE: "SELECT COALESCE(a, 0) AS x, LISTAGG(b, ',') FROM t GROUP BY a",
         }
-        targets = [Dialect.SNOWFLAKE, Dialect.DBT_SNOWFLAKE, Dialect.BIGQUERY]
+        targets = [Dialect.PANDAS, Dialect.SNOWFLAKE, Dialect.DBT_SNOWFLAKE, Dialect.BIGQUERY]
         for source, sql in samples.items():
             for target in targets:
                 translated, conf, auto, review = translate_sql(sql, source, target)
                 assert translated.strip(), f"{source.value}→{target.value} returned empty SQL"
                 assert conf >= 0
+                if target == Dialect.PANDAS:
+                    assert "import pandas as pd" in translated
+                    continue
                 # Same-family routes may only apply light transforms; others must change or note work
                 if source != target and not (
                     source == Dialect.SNOWFLAKE and target == Dialect.DBT_SNOWFLAKE

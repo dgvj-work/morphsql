@@ -21,6 +21,7 @@ SOURCE_DIALECTS = (
     Dialect.SNOWFLAKE,
 )
 TARGET_DIALECTS = (
+    Dialect.PANDAS,
     Dialect.SNOWFLAKE,
     Dialect.DBT_SNOWFLAKE,
     Dialect.BIGQUERY,
@@ -55,6 +56,8 @@ def normalize_target(target: Dialect) -> Dialect:
     """Map product targets to the SQL dialect family used for conversion."""
     if target == Dialect.DBT_SNOWFLAKE:
         return Dialect.SNOWFLAKE
+    if target == Dialect.PANDAS:
+        return Dialect.PANDAS
     return target
 
 
@@ -413,6 +416,11 @@ def translate_sql(
 
     Returns: (translated_sql, confidence, auto_converted, requires_review)
     """
+    from sqlshift.translator.pandas_codegen import is_pandas_target, sql_to_pandas
+
+    if is_pandas_target(target) or target == Dialect.PANDAS:
+        return sql_to_pandas(sql, source)
+
     auto_converted: list[str] = []
     requires_review: list[str] = []
     confidence = 100.0
