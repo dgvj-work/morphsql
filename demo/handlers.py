@@ -20,6 +20,7 @@ from sqlshift.models import Dialect, MigrationObject, MigrationReport, ObjectTyp
 from sqlshift.pipeline import MigrationPipeline
 from sqlshift.translator.engine import translate_sql
 from sqlshift.translator.pandas_codegen import is_pandas_target
+from sqlshift.translator.pyspark_codegen import is_pyspark_target
 from demo.theme import C_MUTED, C_PANEL, C_TEXT
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "vertica_legacy"
@@ -354,10 +355,13 @@ def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figu
         source_d = Dialect(source)
         wants_dbt = is_dbt_target(target)
         wants_pandas = is_pandas_target(target)
+        wants_pyspark = is_pyspark_target(target)
         if wants_dbt:
             target_d = Dialect.SNOWFLAKE
         elif wants_pandas:
             target_d = Dialect.PANDAS
+        elif wants_pyspark:
+            target_d = Dialect.PYSPARK
         else:
             target_d = Dialect(target)
 
@@ -368,7 +372,9 @@ def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figu
         elif re.search(r"\bCREATE\s+(?:OR\s+REPLACE\s+)?VIEW\b", sql, re.I):
             obj_type = ObjectType.VIEW
 
-        score_target = Dialect.SNOWFLAKE if wants_pandas else target_d
+        score_target = (
+            Dialect.SNOWFLAKE if (wants_pandas or wants_pyspark) else target_d
+        )
         obj = MigrationObject(name="input_object", object_type=obj_type, source_sql=sql)
         obj = score_object(obj, source_d, score_target)
         complexity = count_sql_complexity(sql, source_d)
@@ -522,6 +528,7 @@ SOURCE_LABELS = {
 }
 TARGET_LABELS = {
     "pandas": "Python (pandas)",
+    "pyspark": "Python (PySpark)",
     "snowflake": "Snowflake SQL",
     "bigquery": "BigQuery SQL",
     "dbt-snowflake": "dbt project (Snowflake)",
@@ -529,6 +536,7 @@ TARGET_LABELS = {
 SOURCE_DROPDOWN = [(label, key) for key, label in SOURCE_LABELS.items()]
 TARGET_DROPDOWN = [
     ("Python (pandas) — recommended for notebooks", "pandas"),
+    ("Python (PySpark) — Spark DataFrame API", "pyspark"),
     ("Snowflake SQL", "snowflake"),
     ("BigQuery SQL", "bigquery"),
     ("dbt project (Snowflake)", "dbt-snowflake"),
@@ -543,15 +551,20 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
     source_d = Dialect(source)
     wants_dbt = is_dbt_target(target)
     wants_pandas = is_pandas_target(target)
+    wants_pyspark = is_pyspark_target(target)
     if wants_dbt:
         target_d = Dialect.SNOWFLAKE
     elif wants_pandas:
         target_d = Dialect.PANDAS
+    elif wants_pyspark:
+        target_d = Dialect.PYSPARK
     else:
         target_d = Dialect(target)
 
     converted, conf, auto, review = translate_sql(sql, source_d, target_d)
-    score_target = Dialect.SNOWFLAKE if wants_pandas else target_d
+    score_target = (
+        Dialect.SNOWFLAKE if (wants_pandas or wants_pyspark) else target_d
+    )
     obj = MigrationObject(
         name="hero_query",
         object_type=ObjectType.SQL_SCRIPT,
@@ -574,6 +587,14 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
             "2. Check the **sample preview** (synthetic tables).",
             "3. Download the `.py` file or open the notebook starter cell.",
             "4. Point `tables['…']` at your real DataFrames (`read_parquet` / `read_sql`).",
+        ]
+    elif wants_pyspark:
+        kind = "Python (PySpark)"
+        next_steps = [
+            "1. Review the generated PySpark code on the right.",
+            "2. Download the `.py` file (preview needs a SparkSession — run in Databricks / EMR / local Spark).",
+            "3. Provide `tables['…']` or replace with `spark.table` / `spark.read`.",
+            "4. Use `result` as your Spark DataFrame.",
         ]
     elif wants_dbt:
         kind = "dbt project"
@@ -754,6 +775,12 @@ def run_sample_preview(output: str, target: str, sql: str = "") -> tuple:
     """
     import pandas as pd
 
+    if is_pyspark_target(target):
+        return (
+            None,
+            "_Live preview needs a SparkSession — download the `.py` and run in "
+            "Databricks / EMR / local Spark. Sample preview is pandas-only._",
+        )
     if not is_pandas_target(target):
         return None, "_Live preview is available when output is **Python (pandas)**._"
 
@@ -789,19 +816,38 @@ def run_sample_preview(output: str, target: str, sql: str = "") -> tuple:
 
 def write_output_download(output: str, target: str) -> str:
     """Write converted output to a downloadable temp file; return path."""
-    suffix = ".py" if is_pandas_target(target) else ".sql" if not is_dbt_target(target) else ".txt"
-    prefix = "morphsql_pandas_" if is_pandas_target(target) else "morphsql_output_"
+    if is_pandas_target(target) or is_pyspark_target(target):
+        suffix = ".py"
+        prefix = "morphsql_pandas_" if is_pandas_target(target) else "morphsql_pyspark_"
+    elif is_dbt_target(target):
+        suffix = ".txt"
+        prefix = "morphsql_output_"
+    else:
+        suffix = ".sql"
+        prefix = "morphsql_output_"
     path = Path(tempfile.gettempdir()) / f"{prefix}{abs(hash(output)) % 10_000_000}{suffix}"
     path.write_text(output or "", encoding="utf-8")
     return str(path)
 
 
 def notebook_cell(output: str, target: str) -> str:
-    """Short copy-paste cell for Jupyter / Colab."""
+    """Short copy-paste cell for Jupyter / Colab / Databricks."""
+    if is_pyspark_target(target):
+        return (
+            "# MorphSQL → PySpark (paste into a Databricks / Spark notebook)\n"
+            "from pyspark.sql import SparkSession, functions as F, Window\n\n"
+            "# spark = SparkSession.builder.getOrCreate()\n"
+            "# 1) Provide input frames (or replace with spark.table / spark.read)\n"
+            "# tables = {\n"
+            "#     'staging.orders': spark.table('staging.orders'),\n"
+            "# }\n\n"
+            "# 2) Paste the generated MorphSQL code below (or %run the downloaded .py)\n"
+            "# 3) Use `result` as your Spark DataFrame\n"
+        )
     if not is_pandas_target(target):
         return (
             "# Output is SQL/dbt — paste into your warehouse client or dbt project.\n"
-            "# Tip: switch Convert to → Python (pandas) for a notebook cell."
+            "# Tip: switch Convert to → Python (pandas) or Python (PySpark).\n"
         )
     return (
         "# MorphSQL → pandas (paste into a notebook cell)\n"
@@ -849,6 +895,7 @@ def convert_for_ui(sql: str, source: str, target: str):
 
 PLAYGROUND_EXAMPLE_LABELS = [
     "DS: Snowflake orders → pandas (fillna / filters)",
+    "DS: Snowflake orders → PySpark (F.coalesce / filter)",
     "AI: Feature aggregates → pandas (training features)",
     "DS: Vertica ZEROIFNULL → pandas",
     "DS: Oracle dual constants → pandas",
@@ -863,6 +910,11 @@ PLAYGROUND_EXAMPLES = [
         "SELECT customer_id, COALESCE(order_amount, 0) AS order_amount, COALESCE(discount, 0) AS discount FROM staging.orders WHERE order_date >= CURRENT_DATE - 30",
         "snowflake",
         "pandas",
+    ],
+    [
+        "SELECT customer_id, COALESCE(order_amount, 0) AS order_amount, COALESCE(discount, 0) AS discount FROM staging.orders WHERE order_date >= CURRENT_DATE - 30",
+        "snowflake",
+        "pyspark",
     ],
     [
         "SELECT user_id, COUNT(*) AS event_count_90d, SUM(ZEROIFNULL(event_value)) AS value_sum_90d, AVG(ZEROIFNULL(event_value)) AS value_avg_90d FROM staging.product_events WHERE event_ts >= CURRENT_DATE - 90 GROUP BY user_id",
@@ -935,14 +987,20 @@ AGENT_PROMPTS = [
         "pandas",
     ),
     (
-        "Convert feature SQL to pandas",
+        "Convert this SQL to PySpark",
         PLAYGROUND_EXAMPLES[1][0],
+        "snowflake",
+        "pyspark",
+    ),
+    (
+        "Convert feature SQL to pandas",
+        PLAYGROUND_EXAMPLES[2][0],
         "vertica",
         "pandas",
     ),
     (
         "Emit a dbt project from this procedure",
-        PLAYGROUND_EXAMPLES[7][0],
+        PLAYGROUND_EXAMPLES[8][0],
         "vertica",
         "dbt-snowflake",
     ),

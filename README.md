@@ -1,17 +1,18 @@
 # MorphSQL
 
-Convert Vertica / Oracle / Redshift / BigQuery / Snowflake SQL to **pandas** (notebook-ready), **Snowflake**, **BigQuery**, or **dbt**.
+Convert Vertica / Oracle / Redshift / BigQuery / Snowflake SQL to **pandas** or **PySpark** (notebook-ready), **Snowflake**, **BigQuery**, or **dbt**.
 
 [![Space](https://img.shields.io/badge/🤗%20Space-MorphSQL-blue)](https://huggingface.co/spaces/dgvj-work/sqlshift-ai)
 [![GitHub](https://img.shields.io/badge/GitHub-dgvj--work%2Fsql__shift__ai-blue)](https://github.com/dgvj-work/sql_shift_ai)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 
-Built for data scientists: convert → sample preview → download `.py`.
+Built for data scientists: convert → sample preview (pandas) → download `.py`.
 
 ```python
 from sqlshift.ai import pipeline
 print(pipeline("sql-migration")("SELECT COALESCE(a, 0) FROM t", source="snowflake", target="pandas"))
+print(pipeline("sql-migration")("SELECT COALESCE(a, 0) FROM t", source="snowflake", target="pyspark"))
 ```
 
 

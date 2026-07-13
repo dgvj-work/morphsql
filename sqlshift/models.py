@@ -16,6 +16,7 @@ class Dialect(str, Enum):
     REDSHIFT = "redshift"
     DBT_SNOWFLAKE = "dbt-snowflake"
     PANDAS = "pandas"
+    PYSPARK = "pyspark"
 
 
 class ObjectType(str, Enum):

@@ -9,10 +9,11 @@ python_version: "3.11"
 app_file: app.py
 pinned: true
 license: apache-2.0
-short_description: SQL → pandas features for AI/ML (also Snowflake, BigQuery, dbt)
+short_description: SQL → pandas / PySpark for AI/ML (also Snowflake, BigQuery, dbt)
 tags:
   - sql
   - pandas
+  - pyspark
   - code
   - data-science
   - machine-learning
@@ -29,19 +30,19 @@ suggested_hardware: cpu-basic
 
 # MorphSQL
 
-**SQL → pandas** for data scientists — plus Snowflake / BigQuery / dbt when you need warehouse output.
+**SQL → pandas / PySpark** for data scientists — plus Snowflake / BigQuery / dbt when you need warehouse output.
 
 ## Try
 1. Open **Convert**
 2. Load a DS example (or paste SQL)
-3. See code + **sample preview** + download `.py`
+3. See code + **sample preview** (pandas) + download `.py`
 
 ```python
 from sqlshift.ai import pipeline
 print(pipeline("sql-migration")(
     "SELECT COALESCE(a, 0) FROM t",
     source="snowflake",
-    target="pandas",
+    target="pandas",  # or "pyspark"
 ))
 ```
 

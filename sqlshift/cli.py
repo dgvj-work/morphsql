@@ -35,6 +35,7 @@ class SourceDialect(str, Enum):
 
 class TargetDialect(str, Enum):
     pandas = "pandas"
+    pyspark = "pyspark"
     snowflake = "snowflake"
     dbt_snowflake = "dbt-snowflake"
     bigquery = "bigquery"

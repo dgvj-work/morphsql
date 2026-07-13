@@ -22,6 +22,7 @@ SOURCE_DIALECTS = (
 )
 TARGET_DIALECTS = (
     Dialect.PANDAS,
+    Dialect.PYSPARK,
     Dialect.SNOWFLAKE,
     Dialect.DBT_SNOWFLAKE,
     Dialect.BIGQUERY,
@@ -58,6 +59,8 @@ def normalize_target(target: Dialect) -> Dialect:
         return Dialect.SNOWFLAKE
     if target == Dialect.PANDAS:
         return Dialect.PANDAS
+    if target == Dialect.PYSPARK:
+        return Dialect.PYSPARK
     return target
 
 
@@ -417,9 +420,12 @@ def translate_sql(
     Returns: (translated_sql, confidence, auto_converted, requires_review)
     """
     from sqlshift.translator.pandas_codegen import is_pandas_target, sql_to_pandas
+    from sqlshift.translator.pyspark_codegen import is_pyspark_target, sql_to_pyspark
 
     if is_pandas_target(target) or target == Dialect.PANDAS:
         return sql_to_pandas(sql, source)
+    if is_pyspark_target(target) or target == Dialect.PYSPARK:
+        return sql_to_pyspark(sql, source)
 
     auto_converted: list[str] = []
     requires_review: list[str] = []

@@ -20,7 +20,7 @@ datasets:
 
 # MorphSQL
 
-Convert Vertica / Oracle / Redshift / BigQuery SQL to **pandas**, Snowflake, BigQuery, or dbt.
+Convert Vertica / Oracle / Redshift / BigQuery SQL to **pandas**, **PySpark**, Snowflake, BigQuery, or dbt.
 
 ## Artifacts
 - `risk_classifier.joblib` — migration risk (`low` / `medium` / `high`)
@@ -33,6 +33,7 @@ Convert Vertica / Oracle / Redshift / BigQuery SQL to **pandas**, Snowflake, Big
 from sqlshift.ai import pipeline
 
 print(pipeline("sql-migration")("SELECT COALESCE(a, 0) FROM t", source="snowflake", target="pandas"))
+print(pipeline("sql-migration")("SELECT COALESCE(a, 0) FROM t", source="snowflake", target="pyspark"))
 print(pipeline("sql-risk-classification")("EXECUTE IMMEDIATE 'x'"))
 ```
 

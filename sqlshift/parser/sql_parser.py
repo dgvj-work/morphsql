@@ -24,6 +24,7 @@ DIALECT_MAP = {
     Dialect.REDSHIFT: "redshift",
     Dialect.DBT_SNOWFLAKE: "snowflake",
     Dialect.PANDAS: "postgres",
+    Dialect.PYSPARK: "postgres",
 }
 
 

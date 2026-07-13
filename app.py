@@ -38,10 +38,11 @@ def _build_demo() -> gr.Blocks:
         gr.HTML(
             f"""
             <div class="header-block">
-                <div class="eyebrow">AI / ML · DATA SCIENCE · SQL → PANDAS</div>
+                <div class="eyebrow">AI / ML · DATA SCIENCE · SQL → PANDAS / PYSPARK</div>
                 <h1>{__product_name__}</h1>
-                <p>Turn warehouse SQL into notebook-ready <strong>pandas</strong> features for
-                training, EDA, or HF pipelines — with live preview and a downloadable <code>.py</code>.</p>
+                <p>Turn warehouse SQL into notebook-ready <strong>pandas</strong> or
+                <strong>PySpark</strong> for training, EDA, or Spark jobs — with downloadable
+                <code>.py</code> (and a live sample preview for pandas).</p>
             </div>
             """
         )
@@ -167,34 +168,36 @@ def _build_demo() -> gr.Blocks:
                 gr.Markdown(
                     f"""
 ## For AI / ML practitioners
-MorphSQL is a **deterministic** SQL→pandas codegen tool (not a chat LLM). Use it when you have
-warehouse SQL for labels/features and want a Python frame for training or evaluation.
+MorphSQL is a **deterministic** SQL→pandas / PySpark codegen tool (not a chat LLM). Use it when you have
+warehouse SQL for labels/features and want a Python frame for training or Spark jobs.
 
 **Typical path**
-1. Convert feature SQL → pandas
-2. Point `tables[...]` at parquet / `datasets` / warehouse extracts
-3. Feed `result` into sklearn, XGBoost, or a Transformers training loop
+1. Convert feature SQL → pandas or PySpark
+2. Point `tables[...]` at parquet / `datasets` / warehouse extracts / Spark tables
+3. Feed `result` into sklearn, XGBoost, Transformers, or Spark ML
 
 ## Why data scientists use this
 Warehouse SQL often lives in BI tools. MorphSQL rewrites dialect quirks (NVL, ZEROIFNULL, dates)
-into pandas you can run in Jupyter / Colab.
+into pandas or PySpark you can run in Jupyter / Colab / Databricks.
 
 ## Recommended workflow
-1. Convert SQL → **Python (pandas)**
-2. Check the **sample preview**
-3. Download `.py` or copy the **HF pipeline** snippet
+1. Convert SQL → **Python (pandas)** or **Python (PySpark)**
+2. Check the **sample preview** (pandas) or download `.py` (PySpark)
+3. Copy the **HF pipeline** snippet
 4. Replace synthetic tables with real data
 
 ## Output choices
 | Convert to | Best for |
 |---|---|
 | **Python (pandas)** | Feature engineering, EDA, model training prep |
+| **Python (PySpark)** | Large-scale Spark DataFrame transforms |
 | **Snowflake / BigQuery SQL** | Keeping transforms in the warehouse |
 | **dbt project** | Productionizing SQL into models |
 
 ```python
 from sqlshift.ai import pipeline
 out = pipeline("sql-migration")(sql, source="snowflake", target="pandas")
+# or target="pyspark"
 # out["converted_sql"] → exec / save as features.py
 ```
 

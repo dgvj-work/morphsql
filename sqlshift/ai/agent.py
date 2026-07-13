@@ -13,6 +13,7 @@ from sqlshift.intelligence.rag import get_rag
 from sqlshift.models import Dialect, MigrationObject, ObjectType
 from sqlshift.translator.engine import translate_sql
 from sqlshift.translator.pandas_codegen import is_pandas_target
+from sqlshift.translator.pyspark_codegen import is_pyspark_target
 
 
 @dataclass
@@ -138,8 +139,8 @@ class SQLMigrationAgent:
         wants_convert = bool(
             re.search(r"\bconvert\b|\bmigrate\b|\btranslate\b|\btransform\b", p) or sql
         )
-        if re.search(r"\bpandas\b|\bdataframe\b|\bpython\b", p):
-            # still convert; target dropdown should be pandas
+        if re.search(r"\bpandas\b|\bpyspark\b|\bspark\b|\bdataframe\b|\bpython\b", p):
+            # still convert; target dropdown should match pandas/pyspark
             return "full"
         if re.search(r"\bdbt\b|feature mart", p):
             return "dbt"
@@ -159,6 +160,8 @@ class SQLMigrationAgent:
         source_d = Dialect(source)
         if is_pandas_target(target):
             target_d = Dialect.PANDAS
+        elif is_pyspark_target(target):
+            target_d = Dialect.PYSPARK
         elif is_dbt_target(target):
             target_d = Dialect.SNOWFLAKE
         else:

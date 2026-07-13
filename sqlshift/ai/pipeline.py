@@ -9,6 +9,7 @@ from sqlshift.ai.risk_model import get_risk_model
 from sqlshift.models import Dialect
 from sqlshift.translator.engine import translate_sql
 from sqlshift.translator.pandas_codegen import is_pandas_target
+from sqlshift.translator.pyspark_codegen import is_pyspark_target
 
 
 def pipeline(task: str = "sql-migration", **kwargs):
@@ -64,6 +65,8 @@ def migrate_sql(sql: str, source: str = "snowflake", target: str = "pandas") -> 
     """One-liner helper used in model card examples."""
     if is_pandas_target(target):
         out_target = Dialect.PANDAS
+    elif is_pyspark_target(target):
+        out_target = Dialect.PYSPARK
     elif target == "dbt-snowflake":
         out_target = Dialect.SNOWFLAKE
     else:
