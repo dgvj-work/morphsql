@@ -103,21 +103,54 @@ def convert(
     generate_dbt: bool = typer.Option(False, "--generate-dbt"),
 ):
     """Convert legacy SQL to target platform dialect."""
-    pipeline = MigrationPipeline(source=_to_dialect(source), target=_to_dialect(target))
+    from sqlshift.dbt_generator.decomposer import (
+        decompose_to_dbt,
+        format_dbt_project,
+        is_dbt_target,
+        write_dbt_project,
+    )
+    from sqlshift.models import MigrationObject, ObjectType
+
+    wants_dbt = is_dbt_target(target.value) or generate_dbt
+    sql_target = Dialect.SNOWFLAKE if is_dbt_target(target.value) else _to_dialect(target)
+    pipeline = MigrationPipeline(source=_to_dialect(source), target=sql_target)
 
     path_obj = Path(path)
     if path_obj.is_file():
         sql = path_obj.read_text()
-        translated, confidence, auto, review = translate_sql(sql, _to_dialect(source), _to_dialect(target))
+        translated, confidence, auto, review = translate_sql(
+            sql, _to_dialect(source), sql_target
+        )
         console.print(Panel(f"Conversion confidence: [bold]{confidence:.0f}%[/]", expand=False))
         if auto:
             console.print("[green]Auto-converted:[/] " + ", ".join(auto[:5]))
         if review:
             console.print("[yellow]Requires review:[/] " + ", ".join(review[:5]))
-        console.print("\n[bold]Converted SQL:[/]\n")
-        console.print(translated)
-        if output:
-            Path(output).write_text(translated)
+
+        if wants_dbt:
+            obj_type = ObjectType.SQL_SCRIPT
+            if "PROCEDURE" in sql.upper():
+                obj_type = ObjectType.STORED_PROCEDURE
+            elif "CREATE" in sql.upper() and "VIEW" in sql.upper():
+                obj_type = ObjectType.VIEW
+            obj = MigrationObject(
+                name=path_obj.stem,
+                object_type=obj_type,
+                source_sql=sql,
+                target_sql=translated,
+            )
+            files = decompose_to_dbt(obj, _to_dialect(source), project_name=path_obj.stem.lower())
+            console.print(f"\n[bold]dbt project[/] ({len(files)} files):\n")
+            console.print(format_dbt_project(files, max_files=8))
+            if output:
+                out_dir = Path(output)
+                write_dbt_project(files, out_dir)
+                console.print(f"[green]✓[/] Wrote dbt project → {out_dir}")
+        else:
+            console.print("\n[bold]Converted SQL:[/]\n")
+            console.print(translated)
+            if output:
+                Path(output).write_text(translated)
     else:
         report = pipeline.analyze(path)
         report = pipeline.convert(report)
@@ -126,8 +159,9 @@ def convert(
         out = Path(output or "migration-output")
         out.mkdir(parents=True, exist_ok=True)
         pipeline.generate_report(report, out / "migration_report.html")
-        if generate_dbt:
+        if wants_dbt:
             pipeline.generate_dbt(report, out / "dbt")
+            console.print(f"[green]✓[/] dbt projects written → {out / 'dbt'}")
         console.print(f"[green]✓[/] Converted {len(report.objects)} objects → {out}")
 
 

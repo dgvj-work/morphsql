@@ -124,6 +124,48 @@ class TestTranslator:
         dbt, _, _, _ = translate_sql(sql, Dialect.VERTICA, Dialect.DBT_SNOWFLAKE)
         assert "COALESCE" in snow.upper() and "COALESCE" in dbt.upper()
 
+    def test_vertica_procedure_to_dbt_models(self):
+        from sqlshift.dbt_generator.decomposer import decompose_to_dbt, format_dbt_project, is_dbt_target
+
+        assert is_dbt_target("dbt-snowflake")
+        sql = Path("examples/vertica_legacy/procedures/SP_BUILD_CUSTOMER_DAILY.sql").read_text()
+        translated, _, _, _ = translate_sql(sql, Dialect.VERTICA, Dialect.SNOWFLAKE)
+        obj = MigrationObject(
+            name="SP_BUILD_CUSTOMER_DAILY",
+            object_type=ObjectType.STORED_PROCEDURE,
+            source_sql=sql,
+            target_sql=translated,
+        )
+        files = decompose_to_dbt(obj, Dialect.VERTICA)
+        assert "dbt_project.yml" in files
+        assert any(p.startswith("models/staging/") and p.endswith(".sql") for p in files)
+        assert any(p.startswith("models/marts/") and p.endswith(".sql") for p in files)
+        mart = next(v for k, v in files.items() if k.startswith("models/marts/") and k.endswith(".sql"))
+        assert "source(" in "\n".join(files.values()) or "ref(" in mart
+        assert "END AS" in mart.upper() or "CUSTOMER_SEGMENT" in mart.upper()
+        assert "{{ var('load_date') }}" in "\n".join(files.values())
+        rendered = format_dbt_project(files)
+        assert "models/staging/" in rendered
+        assert "COALESCE" in rendered.upper()
+
+    def test_cte_query_to_dbt_models(self):
+        from sqlshift.dbt_generator.decomposer import decompose_to_dbt
+
+        sql = Path("examples/vertica_legacy/queries/customer_lifetime_value.sql").read_text()
+        translated, _, _, _ = translate_sql(sql, Dialect.VERTICA, Dialect.SNOWFLAKE)
+        obj = MigrationObject(
+            name="customer_lifetime_value",
+            object_type=ObjectType.SQL_SCRIPT,
+            source_sql=sql,
+            target_sql=translated,
+        )
+        files = decompose_to_dbt(obj, Dialect.VERTICA)
+        assert any("marts/" in p for p in files)
+        assert any(p.endswith(".sql") and "stg_" in p or "int_" in p or "marts/" in p for p in files)
+        joined = "\n".join(files.values())
+        assert "COALESCE" in joined.upper()
+        assert "source(" in joined or "ref(" in joined
+
     def test_procedure_to_bigquery(self):
         sql = """CREATE OR REPLACE PROCEDURE p(load_date DATE) AS $$
         BEGIN

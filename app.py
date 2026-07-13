@@ -60,7 +60,8 @@ def _build_demo() -> gr.Blocks:
             with gr.Tab("Object Inspector"):
                 gr.Markdown(
                     "Paste a single SQL object (query, view, or procedure). "
-                    "Assess migration risk and convert to the target dialect."
+                    "Assess migration risk and convert to the target dialect. "
+                    "Choose **dbt-snowflake** to generate staging / intermediate / mart models."
                 )
                 with gr.Row():
                     with gr.Column(scale=3):
@@ -100,7 +101,7 @@ def _build_demo() -> gr.Blocks:
                 with gr.Row():
                     with gr.Column(scale=3):
                         obj_converted = gr.Code(
-                            label="Converted SQL",
+                            label="Converted output (SQL or dbt project)",
                             language="sql",
                             lines=16,
                             interactive=False,
@@ -269,7 +270,7 @@ SQLShiftAI is a **data platform migration intelligence system** — not a simple
 | Dependency lineage | Interactive object dependency graphs |
 | Risk scoring | Complexity, unsupported syntax, impact |
 | Workload rationalization | Migrate / review / rewrite / retire |
-| dbt architecture | Procedure to staging/intermediate/mart |
+| dbt architecture | Select **dbt-snowflake** to generate staging / intermediate / mart models |
 | Validation suite | Reconciliation checks |
 | Migration runbook | Phased cutover plan |
 | Migration copilot | Grounded advisor |

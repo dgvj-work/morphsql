@@ -220,7 +220,7 @@ def _apply_date_arithmetic(sql: str, target: Dialect) -> tuple[str, list[str]]:
     applied: list[str] = []
     target = normalize_target(target)
     pattern = re.compile(
-        r"(?<![\w.])([A-Za-z_][\w.]*|CURRENT_DATE|CURRENT_TIMESTAMP)\s*-\s*(\d+)(?!\.\d)",
+        r"(?<![:\w.])([A-Za-z_][\w.]*|CURRENT_DATE|CURRENT_TIMESTAMP)\s*-\s*(\d+)(?!\.\d)",
     )
 
     def snowflake_replacer(match: re.Match) -> str:
@@ -437,6 +437,9 @@ def translate_sql(
     # Step 4/5: Procedures vs statement transpile
     is_procedure = bool(re.search(r"\bCREATE\s+(?:OR\s+REPLACE\s+)?PROCEDURE\b", working_sql, re.I))
     if is_procedure:
+        # Date math before :PARAM binding so `load_date - 90` converts cleanly
+        working_sql, date_applied = _apply_date_arithmetic(working_sql, target)
+        auto_converted.extend(date_applied)
         working_sql, proc_applied = _convert_procedure_wrapper(working_sql, target)
         auto_converted.extend(proc_applied)
         if not proc_applied:
@@ -453,10 +456,9 @@ def translate_sql(
         requires_review.extend(t_review)
         if t_review:
             confidence -= len(t_review) * 5
-
-    # Step 6: Date arithmetic after transpile so sqlglot does not wrap INTERVAL twice
-    working_sql, date_applied = _apply_date_arithmetic(working_sql, target)
-    auto_converted.extend(date_applied)
+        # Date arithmetic after transpile so sqlglot does not wrap INTERVAL twice
+        working_sql, date_applied = _apply_date_arithmetic(working_sql, target)
+        auto_converted.extend(date_applied)
 
     # Step 7: Unsupported features
     unsupported = detect_unsupported_features(original, source, target)

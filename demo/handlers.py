@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import zipfile
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 import plotly.graph_objects as go
 
 from sqlshift.assistant.copilot import MigrationCopilot
-from sqlshift.dbt_generator.decomposer import decompose_to_dbt
+from sqlshift.dbt_generator.decomposer import decompose_to_dbt, format_dbt_project, is_dbt_target
 from sqlshift.intelligence.lineage_viz import lineage_to_plotly
 from sqlshift.intelligence.rationalization import generate_rationalization
 from sqlshift.intelligence.runbook import generate_executive_summary, generate_runbook
@@ -22,6 +23,10 @@ from demo.theme import C_MUTED, C_PANEL, C_TEXT
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "vertica_legacy"
 _copilot = MigrationCopilot()
+
+
+def _sanitize_project(name: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]", "_", name.lower()).strip("_") or "migration_project"
 
 
 def _apply_dark_layout(fig: go.Figure, height: int = 260) -> go.Figure:
@@ -204,12 +209,15 @@ def run_migration_workbench(
 
     try:
         source_d = Dialect(source)
-        target_d = Dialect(target if target != "dbt-snowflake" else "snowflake")
+        wants_dbt = is_dbt_target(target)
+        target_d = Dialect("snowflake" if wants_dbt else target)
 
         pipeline = MigrationPipeline(source=source_d, target=target_d)
         report = pipeline.analyze(str(repo_path))
         report = pipeline.convert(report)
         report = pipeline.validate(report)
+        if wants_dbt:
+            report.target_dialect = Dialect.DBT_SNOWFLAKE
 
         exec_summary = generate_executive_summary(report)
         runbook = generate_runbook(report)
@@ -217,14 +225,28 @@ def run_migration_workbench(
 
         dbt_preview = "No suitable object for dbt decomposition."
         candidates = sorted(report.objects, key=lambda o: o.complexity_score, reverse=True)
+        dbt_parts = ["### dbt project preview (Snowflake)\n"]
+        shown = 0
         for obj in candidates:
-            if obj.object_type.value in ("stored_procedure", "sql_script", "view"):
-                files = decompose_to_dbt(obj, source_d)
-                parts = [f"### dbt scaffold preview: {obj.name}\n"]
-                for rel, content in sorted(files.items())[:6]:
-                    parts.append(f"**{rel}**\n```sql\n{content[:800]}\n```\n")
-                dbt_preview = "\n".join(parts)
+            if obj.object_type.value not in ("stored_procedure", "sql_script", "view"):
+                continue
+            files = decompose_to_dbt(obj, source_d, project_name=_sanitize_project(obj.name))
+            dbt_parts.append(f"#### `{obj.name}` → {len(files)} files\n")
+            # Show model SQL files first
+            model_files = [p for p in sorted(files) if p.startswith("models/") and p.endswith(".sql")]
+            for rel in model_files[:5]:
+                dbt_parts.append(f"**{rel}**\n```sql\n{files[rel][:1200]}\n```\n")
+            shown += 1
+            if shown >= 2:
                 break
+        if shown:
+            dbt_preview = "\n".join(dbt_parts)
+        elif not wants_dbt:
+            dbt_preview = (
+                "Target is not **dbt-snowflake**. "
+                "Select **dbt-snowflake** as the target to generate staging / intermediate / mart models, "
+                "or open Architecture (dbt) after a dbt-snowflake run."
+            )
 
         val_lines = ["### Validation results\n"]
         passed = sum(1 for r in report.validation_results if r.passed)
@@ -312,7 +334,7 @@ def run_migration_workbench(
 def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figure, str, str, str]:
     """Assess + convert a single SQL object.
 
-    Returns: analysis_md, risk_fig, badge, converted_sql, notes_md
+    Returns: analysis_md, risk_fig, badge, converted_sql_or_dbt, notes_md
     """
     if not (sql or "").strip():
         return (
@@ -329,8 +351,17 @@ def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figu
         from sqlshift.validation.reconciliation import generate_incremental_strategy
 
         source_d = Dialect(source)
-        target_d = Dialect(target if target != "dbt-snowflake" else "snowflake")
-        obj = MigrationObject(name="input", object_type=ObjectType.SQL_SCRIPT, source_sql=sql)
+        wants_dbt = is_dbt_target(target)
+        target_d = Dialect("snowflake" if wants_dbt else target)
+
+        # Infer object type for better dbt decomposition
+        obj_type = ObjectType.SQL_SCRIPT
+        if re.search(r"\bCREATE\s+(?:OR\s+REPLACE\s+)?PROCEDURE\b", sql, re.I):
+            obj_type = ObjectType.STORED_PROCEDURE
+        elif re.search(r"\bCREATE\s+(?:OR\s+REPLACE\s+)?VIEW\b", sql, re.I):
+            obj_type = ObjectType.VIEW
+
+        obj = MigrationObject(name="input_object", object_type=obj_type, source_sql=sql)
         obj = score_object(obj, source_d, target_d)
         complexity = count_sql_complexity(sql, source_d)
         unsupported = detect_unsupported_features(sql, source_d, target_d)
@@ -338,6 +369,20 @@ def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figu
         incremental = generate_incremental_strategy(sql)
 
         converted, conf, auto, review = translate_sql(sql, source_d, target_d)
+        obj.target_sql = converted
+        obj.conversion_confidence = conf
+        obj.auto_converted = auto
+        obj.requires_review = review
+
+        output_sql = converted
+        dbt_note = ""
+        if wants_dbt:
+            files = decompose_to_dbt(obj, source_d, project_name="input_object")
+            output_sql = format_dbt_project(files)
+            dbt_note = (
+                f"**dbt project generated:** {len(files)} files "
+                f"({len(obj.dbt_models)} models) — staging / intermediate / marts\n\n"
+            )
 
         lines = [
             "### Object assessment",
@@ -348,6 +393,7 @@ def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figu
             f"| Risk | {obj.risk_level.value.title()} |",
             f"| Category | {obj.migration_category.value.replace('_', ' ').title()} |",
             f"| Conversion confidence | {conf:.0f}% |",
+            f"| Output | {'dbt models (Snowflake)' if wants_dbt else target} |",
             f"| Lines | {complexity.get('lines', 0)} |",
             f"| CTEs | {complexity.get('ctes', 0)} |",
             f"| Joins | {complexity.get('joins', 0)} |",
@@ -355,6 +401,8 @@ def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figu
             f"| Window functions | {complexity.get('window_functions', 0)} |",
             "",
         ]
+        if wants_dbt and obj.dbt_models:
+            lines += ["**dbt models**", ""] + [f"- `{m}`" for m in obj.dbt_models] + [""]
         if obj.risk_factors:
             lines += ["**Risk factors**", ""] + [f"- {rf.description}" for rf in obj.risk_factors] + [""]
         if unsupported:
@@ -371,8 +419,10 @@ def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figu
             f"**Confidence:** {conf:.0f}%",
             "",
         ]
+        if dbt_note:
+            notes.append(dbt_note)
         if auto:
-            notes.append("**Transformations**")
+            notes.append("**SQL transformations**")
             notes.extend(f"- {a}" for a in auto[:10])
             notes.append("")
         if review:
@@ -384,7 +434,7 @@ def analyze_sql_object(sql: str, source: str, target: str) -> tuple[str, go.Figu
             "\n".join(lines),
             _risk_gauge(obj.complexity_score),
             badge,
-            converted,
+            output_sql,
             "\n".join(notes),
         )
     except Exception as exc:
