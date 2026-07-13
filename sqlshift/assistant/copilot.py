@@ -3,34 +3,33 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+import re
 
 from sqlshift.knowledge.behavior import BEHAVIOR_DIFFERENCES
 from sqlshift.models import MigrationReport
+from sqlshift.risk.scorer import recommend_workload_action
 
 DEFAULT_MODEL = os.getenv(
     "MIGRATIONIQ_MODEL",
     "Qwen/Qwen2.5-3B-Instruct",
 )
 
-SYSTEM_PROMPT = """You are MigrationIQ Copilot, an expert data platform migration advisor embedded in a migration intelligence product.
+SYSTEM_PROMPT = """You are MigrationIQ Copilot, an expert data platform migration advisor.
 
-You help data engineers plan and execute warehouse migrations (Vertica, Oracle, Redshift → Snowflake, dbt, BigQuery).
+You help data engineers plan warehouse migrations (Vertica, Oracle, Redshift → Snowflake, dbt, BigQuery).
 
-Your expertise covers:
-- Repository discovery, dependency lineage, and impact analysis
+Expertise:
+- Repository discovery, dependency lineage, impact analysis
 - Migration risk scoring and workload rationalization (migrate / rewrite / retire)
 - Hybrid SQL translation and stored-procedure → dbt decomposition
-- Semantic validation, reconciliation testing, and platform behavior differences
-- Cutover planning, incremental strategies, and cost estimation
+- Semantic validation, reconciliation testing, platform behavior differences
+- Cutover planning, incremental strategies, cost estimation
 
 Rules:
-- Answer concisely and professionally. Use markdown when helpful.
-- Ground answers in the migration context provided below when available.
-- If context is missing, give general best-practice guidance for enterprise migrations.
-- Never claim automatic correctness — always note manual review for procedural SQL, dynamic SQL, and cursors.
-- Do not mention being an AI model unless asked.
-- Prefer actionable steps over generic advice.
+- Answer like a senior migration consultant: clear, structured, actionable.
+- Ground answers in the migration context when provided.
+- Never claim automatic correctness for procedural SQL, dynamic SQL, or cursors.
+- Prefer numbered steps and short tables over fluff.
 """
 
 
@@ -40,17 +39,23 @@ class MigrationCopilot:
     def __init__(self, model: str | None = None):
         self.model = model or DEFAULT_MODEL
         self._client = None
+        self._client_checked = False
 
     @property
     def client(self):
-        if self._client is None:
-            try:
-                from huggingface_hub import InferenceClient
+        if self._client_checked:
+            return self._client
+        self._client_checked = True
+        token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
+        if not token:
+            self._client = False
+            return self._client
+        try:
+            from huggingface_hub import InferenceClient
 
-                token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
-                self._client = InferenceClient(token=token) if token else InferenceClient()
-            except ImportError:
-                self._client = False
+            self._client = InferenceClient(token=token)
+        except Exception:
+            self._client = False
         return self._client
 
     def build_context(
@@ -60,7 +65,6 @@ class MigrationCopilot:
         source: str = "vertica",
         target: str = "snowflake",
     ) -> str:
-        """Build grounded context block for the LLM."""
         parts = [f"Migration route: {source} → {target}"]
 
         if sql_snippet.strip():
@@ -68,7 +72,7 @@ class MigrationCopilot:
             parts.append(f"\n### Active SQL (truncated)\n```sql\n{snippet}\n```")
 
         if report is None:
-            parts.append("\nNo repository scan loaded. User may ask general migration questions.")
+            parts.append("\nNo repository scan loaded.")
             return "\n".join(parts)
 
         d = report.dashboard
@@ -81,31 +85,32 @@ class MigrationCopilot:
             f"- Retire/consolidate: {d.recommended_retirement}\n"
             f"- Avg risk score: {d.migration_risk_score:.0f}/100\n"
             f"- Lineage coverage: {d.lineage_coverage_pct:.0f}%\n"
+            f"- Validation pass: {d.validation_passed_pct:.0f}%\n"
             f"- Est. annual savings: ${d.estimated_annual_savings_usd[0]:,.0f}–"
             f"${d.estimated_annual_savings_usd[1]:,.0f}"
         )
 
         if report.objects:
-            parts.append("\n### Top objects")
-            for obj in sorted(report.objects, key=lambda o: o.complexity_score, reverse=True)[:8]:
+            parts.append("\n### Top objects by complexity")
+            for obj in sorted(report.objects, key=lambda o: o.complexity_score, reverse=True)[:10]:
+                action = recommend_workload_action(obj)
                 parts.append(
                     f"- **{obj.name}** ({obj.object_type.value}): "
                     f"complexity {obj.complexity_score}/100, "
                     f"risk {obj.risk_level.value}, "
-                    f"confidence {obj.conversion_confidence:.0f}%"
+                    f"confidence {obj.conversion_confidence:.0f}%, "
+                    f"action={action}"
                 )
-                if obj.requires_review[:2]:
-                    parts.append(f"  Review: {', '.join(obj.requires_review[:2])}")
 
         if report.retirement_candidates:
             parts.append("\n### Retirement candidates")
-            for r in report.retirement_candidates[:5]:
+            for r in report.retirement_candidates[:8]:
                 parts.append(f"- {r}")
 
         if report.behavior_warnings:
             parts.append("\n### Behavior warnings")
-            for w in report.behavior_warnings[:5]:
-                parts.append(f"- {w[:200]}")
+            for w in report.behavior_warnings[:6]:
+                parts.append(f"- {w[:220]}")
 
         return "\n".join(parts)
 
@@ -118,9 +123,11 @@ class MigrationCopilot:
         source: str = "vertica",
         target: str = "snowflake",
     ) -> str:
-        """Generate a copilot response."""
         if not message.strip():
-            return "Ask a question about your migration — scope, risks, lineage, dbt strategy, or cutover planning."
+            return (
+                "Ask about migration scope, what to migrate first, lineage risk, "
+                "dbt strategy, validation, or cutover planning."
+            )
 
         context = self.build_context(report, sql_snippet, source, target)
         full_system = f"{SYSTEM_PROMPT}\n\n## Current session context\n{context}"
@@ -129,7 +136,7 @@ class MigrationCopilot:
         if llm_reply:
             return llm_reply
 
-        return self._fallback(message.strip(), report, source, target)
+        return self._fallback(message.strip(), report, sql_snippet, source, target)
 
     def _call_llm(
         self,
@@ -153,94 +160,211 @@ class MigrationCopilot:
                 model=self.model,
                 messages=messages,
                 max_tokens=900,
-                temperature=0.25,
+                temperature=0.2,
             )
             content = response.choices[0].message.content
             return content.strip() if content else None
         except Exception:
-            try:
-                # Fallback: text generation API for older endpoints
-                prompt = system + "\n\n"
-                for turn in history[-4:]:
-                    prompt += f"{turn.get('role', 'user').upper()}: {turn.get('content', '')}\n"
-                prompt += f"USER: {message}\nASSISTANT:"
-                text = self.client.text_generation(
-                    prompt,
-                    model=self.model,
-                    max_new_tokens=600,
-                    temperature=0.25,
-                    return_full_text=False,
-                )
-                return text.strip() if text else None
-            except Exception:
-                return None
+            return None
 
     def _fallback(
         self,
         message: str,
         report: MigrationReport | None,
+        sql_snippet: str,
         source: str,
         target: str,
     ) -> str:
-        """Structured fallback when LLM API is unavailable."""
+        """Grounded consultant-style answers when HF token is not available."""
         msg = message.lower()
-        lines = [
-            "*LLM inference unavailable — using grounded knowledge base. "
-            "Set `HF_TOKEN` on Hugging Face Spaces for full copilot responses.*\n"
-        ]
+        sections: list[str] = []
 
-        if report and ("scope" in msg or "summary" in msg or "overview" in msg):
+        # Always acknowledge route
+        sections.append(f"Looking at **{source} → {target}**.")
+
+        if report:
             d = report.dashboard
-            lines.append(
-                f"**Migration scope:** {d.total_objects} objects scanned. "
-                f"{d.auto_migratable} ready for automatic migration, "
-                f"{d.requires_review} need review, "
-                f"{d.requires_redesign} require redesign. "
-                f"Average risk {d.migration_risk_score:.0f}/100."
+            ranked = sorted(report.objects, key=lambda o: o.complexity_score, reverse=True)
+
+            if any(k in msg for k in ("first", "priority", "start", "order", "sequence")):
+                low = [o for o in ranked if o.complexity_score < 30][::-1] or ranked[::-1]
+                high = [o for o in ranked if o.complexity_score >= 50]
+                sections.append(
+                    f"\n**Recommended order** based on your scan of {d.total_objects} objects:\n"
+                    "1. Convert low-risk objects first (build confidence and pipeline)\n"
+                    "2. Parallel-run with reconciliation tests\n"
+                    "3. Redesign high-complexity procedures last\n"
+                )
+                if low:
+                    sections.append("**Start with:**")
+                    for o in low[:4]:
+                        sections.append(
+                            f"- `{o.name}` — complexity {o.complexity_score}/100, "
+                            f"{o.risk_level.value} risk"
+                        )
+                if high:
+                    sections.append("\n**Defer / redesign:**")
+                    for o in high[:4]:
+                        sections.append(
+                            f"- `{o.name}` — complexity {o.complexity_score}/100 "
+                            f"({recommend_workload_action(o).replace('_', ' ')})"
+                        )
+                return "\n".join(sections)
+
+            if any(k in msg for k in ("scope", "summary", "overview", "dashboard", "status")):
+                sections.append(
+                    f"\n**Current portfolio**\n"
+                    f"- Objects: **{d.total_objects}**\n"
+                    f"- Auto-migratable: **{d.auto_migratable}**\n"
+                    f"- Needs review: **{d.requires_review}**\n"
+                    f"- Redesign: **{d.requires_redesign}**\n"
+                    f"- Retire/consolidate: **{d.recommended_retirement}**\n"
+                    f"- Avg risk: **{d.migration_risk_score:.0f}/100**\n"
+                    f"- Est. savings: **${d.estimated_annual_savings_usd[0]:,.0f}–"
+                    f"${d.estimated_annual_savings_usd[1]:,.0f}/yr**"
+                )
+                if ranked:
+                    sections.append("\n**Highest complexity objects:**")
+                    for o in ranked[:5]:
+                        sections.append(
+                            f"- `{o.name}` ({o.object_type.value}) — "
+                            f"{o.complexity_score}/100, confidence {o.conversion_confidence:.0f}%"
+                        )
+                return "\n".join(sections)
+
+            if any(k in msg for k in ("retire", "rational", "consolidat", "unused", "orphan")):
+                sections.append("\n**Workload rationalization**")
+                for o in ranked:
+                    action = recommend_workload_action(o)
+                    if action in ("retire", "manual_redesign", "rewrite"):
+                        sections.append(
+                            f"- `{o.name}` → **{action.replace('_', ' ')}** "
+                            f"(complexity {o.complexity_score})"
+                        )
+                if report.retirement_candidates:
+                    sections.append("\n**Retirement candidates from lineage:**")
+                    for r in report.retirement_candidates[:6]:
+                        sections.append(f"- {r}")
+                if len(sections) == 2:
+                    sections.append("No strong retirement candidates in this sample. Focus on rewrite candidates.")
+                return "\n".join(sections)
+
+            if "lineage" in msg or "depend" in msg or "impact" in msg:
+                sections.append(
+                    f"\nLineage coverage is **{d.lineage_coverage_pct:.0f}%**. "
+                    "Use the Workbench → Lineage tab for the interactive graph.\n\n"
+                    "**Cutover risk tip:** migrate objects with few downstream dependents first; "
+                    "leave hubs (high fan-out) for later phases with extra validation."
+                )
+                return "\n".join(sections)
+
+            if any(k in msg for k in ("validat", "reconcil", "test", "checksum")):
+                sections.append(
+                    f"\nValidation pass rate in last scan: **{d.validation_passed_pct:.0f}%**.\n\n"
+                    "**Minimum reconciliation suite:**\n"
+                    "1. Row counts (source vs target)\n"
+                    "2. Null rates on string columns (empty-string vs NULL)\n"
+                    "3. Aggregate metric tolerance for financial columns\n"
+                    "4. Incremental replay for delete+reload patterns\n"
+                    "5. Spot-check business-rule CASE classifications"
+                )
+                return "\n".join(sections)
+
+        # SQL / dialect questions
+        if re.search(r"zeroifnull|nvl|isnull", msg):
+            sections.append(
+                "\n**Function mapping**\n"
+                "- `ZEROIFNULL(x)` → `COALESCE(x, 0)`\n"
+                "- `NVL(x, y)` / `ISNULL(x, y)` → `COALESCE(x, y)`\n\n"
+                "After conversion, validate NULL rates — Vertica/Oracle empty-string "
+                "semantics can differ from Snowflake."
             )
-        elif report and ("retire" in msg or "rational" in msg or "consolidat" in msg):
-            if report.retirement_candidates:
-                lines.append("**Rationalization recommendations:**")
-                for r in report.retirement_candidates[:6]:
-                    lines.append(f"- {r}")
-            else:
-                lines.append("No retirement candidates detected in current scan.")
-        elif "zeroifnull" in msg or "nvl" in msg:
-            lines.append(
-                "Map `ZEROIFNULL(x)` → `COALESCE(x, 0)`. "
-                "`NVL`/`ISNULL` → `COALESCE`. Validate NULL semantics after conversion."
+            return "\n".join(sections)
+
+        if any(k in msg for k in ("datediff", "dateadd", "date arithmetic", "timezone")):
+            sections.append(
+                "\n**Date handling**\n"
+                "- Vertica `DATEDIFF('day', a, b)` → Snowflake `DATEDIFF(day, a, b)`\n"
+                "- `col - 90` → `DATEADD(day, -90, col)`\n"
+                "- Normalize timestamps to UTC before period aggregations"
             )
-        elif "lineage" in msg and report:
-            lines.append(
-                f"Lineage coverage is {report.dashboard.lineage_coverage_pct:.0f}%. "
-                "Check the Lineage tab for dependency graph. "
-                "High downstream count increases cutover risk."
+            return "\n".join(sections)
+
+        if any(k in msg for k in ("procedure", "stored proc", "pl/sql")):
+            sections.append(
+                "\n**Procedure migration**\n"
+                "1. Convert wrapper to Snowflake `LANGUAGE SQL` with `:PARAM` bindings\n"
+                "2. Replace `LOCAL TEMP` with `CREATE OR REPLACE TEMPORARY TABLE`\n"
+                "3. Prefer decomposing into dbt staging → intermediate → mart\n"
+                "4. Manually review cursors, dynamic SQL, and exception handlers"
             )
-        elif "dbt" in msg:
-            lines.append(
-                "Decompose procedures into staging → intermediate → mart models. "
-                "Use incremental strategies for delete+reload patterns. "
-                "Generate schema tests from detected behavior risks."
+            return "\n".join(sections)
+
+        if "dbt" in msg:
+            sections.append(
+                "\n**dbt architecture approach**\n"
+                "1. Sources for landing/staging tables\n"
+                "2. Staging models = 1:1 cleansed sources\n"
+                "3. Intermediate models = business transforms (CTEs)\n"
+                "4. Marts = consumer-facing tables\n"
+                "5. Incremental strategy: delete+insert for day-reload patterns; merge for CDC\n"
+                "6. Add schema tests (`unique`, `not_null`) on keys"
             )
-        elif "cutover" in msg or "plan" in msg:
-            lines.append(
-                "**Suggested cutover phases:**\n"
-                "1. Discovery + lineage (current scan)\n"
-                "2. Convert low-risk objects first\n"
+            return "\n".join(sections)
+
+        if any(k in msg for k in ("cutover", "plan", "roadmap", "phase")):
+            sections.append(
+                "\n**Suggested cutover plan**\n"
+                "1. Discovery + lineage (Workbench scan)\n"
+                "2. Migrate low-risk objects + generate dbt scaffold\n"
                 "3. Parallel run with reconciliation tests\n"
-                "4. Migrate high-risk procedures with manual redesign\n"
-                "5. Retire orphaned assets\n"
+                "4. Redesign high-risk procedures\n"
+                "5. Retire orphaned / unused assets\n"
                 "6. Production cutover with rollback window"
             )
-        else:
-            diffs = [d for d in BEHAVIOR_DIFFERENCES if d.source_platform == source][:3]
-            lines.append(
-                "I can help with migration scope, lineage impact, dbt architecture, "
-                "validation strategy, workload rationalization, and cutover planning."
-            )
-            if diffs:
-                lines.append("\n**Key platform behaviors:**")
-                for d in diffs:
-                    lines.append(f"- {d.name}: {d.description}")
+            if report:
+                d = report.dashboard
+                sections.append(
+                    f"\nWith your current scan: start with **{d.auto_migratable}** auto-migratable "
+                    f"objects, then schedule **{d.requires_review + d.requires_redesign}** for engineering."
+                )
+            return "\n".join(sections)
 
-        return "\n".join(lines)
+        if sql_snippet.strip() and any(k in msg for k in ("this", "sql", "convert", "what", "explain")):
+            sections.append(
+                "\nI see SQL loaded in context. Use **Object Inspector → Assess & Convert** "
+                "for dialect output and risk score. Ask specifically about functions, "
+                "incremental strategy, or dbt decomposition for this object."
+            )
+            return "\n".join(sections)
+
+        # Default helpful response
+        diffs = [d for d in BEHAVIOR_DIFFERENCES if d.source_platform == source][:3]
+        sections.append(
+            "\nI can answer like a migration consultant on:\n"
+            "- What to migrate first / portfolio risk\n"
+            "- Lineage impact and retirement candidates\n"
+            "- ZEROIFNULL / dates / procedures / dbt strategy\n"
+            "- Validation and cutover planning\n"
+        )
+        if report:
+            sections.append(
+                f"A scan is loaded ({report.dashboard.total_objects} objects). "
+                "Try: *What should we migrate first?*"
+            )
+        else:
+            sections.append(
+                "No scan loaded yet — run **Migration Workbench** first for grounded answers, "
+                "or ask a dialect/process question."
+            )
+        if diffs:
+            sections.append("\n**Platform behaviors to watch:**")
+            for d in diffs:
+                sections.append(f"- {d.description}")
+
+        if not (os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")):
+            sections.append(
+                "\n_Tip: set `HF_TOKEN` for full LLM responses via Hugging Face Inference._"
+            )
+
+        return "\n".join(sections)

@@ -80,6 +80,7 @@ def lineage_to_plotly(
 
     fig = go.Figure(data=[edge_trace, node_trace])
     fig.update_layout(
+        template="plotly_dark",
         title=dict(text="Dependency lineage", font=dict(size=13, color=C_MUTED)),
         showlegend=False,
         hovermode="closest",
@@ -97,6 +98,7 @@ def lineage_to_plotly(
 def _empty_graph(message: str) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
+        template="plotly_dark",
         height=420,
         paper_bgcolor=C_PANEL,
         plot_bgcolor=C_PANEL,

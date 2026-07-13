@@ -135,8 +135,27 @@ class TestIntelligence:
     def test_copilot_fallback(self):
         from sqlshift.assistant.copilot import MigrationCopilot
 
-        reply = MigrationCopilot()._fallback("explain cutover plan", None, "vertica", "snowflake")
-        assert "phase" in reply.lower() or "cutover" in reply.lower()
+        reply = MigrationCopilot()._fallback(
+            "explain cutover plan", None, "", "vertica", "snowflake"
+        )
+        assert "cutover" in reply.lower() or "phase" in reply.lower()
+
+    def test_copilot_priority_with_report(self):
+        from sqlshift.assistant.copilot import MigrationCopilot
+        from sqlshift.pipeline import MigrationPipeline
+
+        report = MigrationPipeline(source=Dialect.VERTICA, target=Dialect.SNOWFLAKE).analyze(
+            EXAMPLES
+        )
+        reply = MigrationCopilot().respond(
+            "What should we migrate first?",
+            [],
+            report,
+            "",
+            "vertica",
+            "snowflake",
+        )
+        assert "Start with" in reply or "Recommended" in reply or "first" in reply.lower()
 
 
 class TestIncrementalStrategy:
