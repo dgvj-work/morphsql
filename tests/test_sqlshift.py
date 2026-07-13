@@ -364,6 +364,17 @@ class TestTranslator:
             assert isinstance(df2, pd.DataFrame)
             assert "preview" in note2.lower() or "Sample" in note2
 
+        # Procedure → dbt must still produce a sample preview
+        proc = (
+            "CREATE OR REPLACE PROCEDURE p(load_date DATE) AS $$ BEGIN "
+            "CREATE LOCAL TEMP TABLE tmp ON COMMIT PRESERVE ROWS AS "
+            "SELECT customer_id, ZEROIFNULL(amount) AS amount FROM staging.orders "
+            "WHERE order_date = load_date; "
+            "INSERT INTO analytics.daily SELECT * FROM tmp; END; $$;"
+        )
+        _, _, _, _, proc_prev, _, _, _ = convert_for_ui(proc, "vertica", "dbt-snowflake")
+        assert isinstance(proc_prev, pd.DataFrame), "procedure dbt preview missing"
+
     def test_is_pandas_target(self):
         from sqlshift.translator.pandas_codegen import is_pandas_target
 

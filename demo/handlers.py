@@ -758,6 +758,12 @@ def build_sample_tables(code: str, sql: str = "") -> dict:
         )
         keys = [k for k in keys if k.lower() not in {"dual", "select"}]
     cols = _infer_columns_from_sql(sql)
+    # Include columns referenced in generated code (e.g. procedure params used as cols)
+    for c in re.findall(r"\[['\"]([^'\"]+)['\"]\]", code or ""):
+        if "." in c or c in keys:
+            continue  # table keys like staging.orders
+        if c not in cols:
+            cols.append(c)
     if not cols:
         cols = ["id", "value"]
 
@@ -841,6 +847,12 @@ def run_sample_preview(
         return None, f"_Preview could not run automatically:_ `{exc}`"
 
     result = ns.get("result")
+    if not isinstance(result, pd.DataFrame):
+        # Procedures may leave the last SELECT under result_N
+        for key, val in reversed(list(ns.items())):
+            if key.startswith("result") and isinstance(val, pd.DataFrame):
+                result = val
+                break
     if not isinstance(result, pd.DataFrame):
         return None, "_Preview ran, but no `result` DataFrame was produced._"
 

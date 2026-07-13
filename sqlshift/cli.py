@@ -152,7 +152,18 @@ def convert(
             console.print("\n[bold]Converted SQL:[/]\n")
             console.print(translated)
             if output:
-                Path(output).write_text(translated)
+                out_path = Path(output)
+                if out_path.exists() and out_path.is_dir():
+                    suffix = ".py" if sql_target in (Dialect.PANDAS, Dialect.PYSPARK) else ".sql"
+                    out_path = out_path / f"{path_obj.stem}_converted{suffix}"
+                elif out_path.suffix == "":
+                    out_path.mkdir(parents=True, exist_ok=True)
+                    suffix = ".py" if sql_target in (Dialect.PANDAS, Dialect.PYSPARK) else ".sql"
+                    out_path = out_path / f"{path_obj.stem}_converted{suffix}"
+                else:
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(translated, encoding="utf-8")
+                console.print(f"[green]✓[/] Wrote → {out_path}")
     else:
         report = pipeline.analyze(path)
         report = pipeline.convert(report)
