@@ -70,9 +70,12 @@ def _synthetic_corpus() -> tuple[list[str], list[str]]:
     return texts, labels
 
 
-def train_and_save(model_dir: Path | None = None) -> Path:
+def train_and_save(model_dir: Path | None = None, *, force: bool = False) -> Path:
     model_dir = Path(model_dir or MODEL_DIR)
     model_dir.mkdir(parents=True, exist_ok=True)
+    out = model_dir / "risk_classifier.joblib"
+    if out.exists() and not force:
+        return out
     texts, labels = _synthetic_corpus()
     clf = SkPipeline(
         steps=[

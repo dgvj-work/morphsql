@@ -1,4 +1,4 @@
-"""Gradio event handlers for SQLShiftAI workbench."""
+"""Gradio event handlers for MorphSQL."""
 
 from __future__ import annotations
 
@@ -562,12 +562,13 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
         explain.append("")
 
     badge = f"{conf:.0f}% · {obj.risk_level.value} · {obj.complexity_score}/100"
+    space_url = "https://huggingface.co/spaces/dgvj-work/sqlshift-ai"
     share = (
-        f"**MorphSQL** converted `{source}` → `{target}` in one click "
-        f"({conf:.0f}% confidence).\n\n"
-        f"AI agent · hybrid codegen · behavior RAG"
+        f"Converted **{source} → {target}** with **MorphSQL** "
+        f"({conf:.0f}% confidence)"
         f"{' · dbt project' if wants_dbt else ''}.\n\n"
-        f"[Duplicate the Space](https://huggingface.co/spaces) · "
+        f"Try it / duplicate: [{space_url}]({space_url})\n"
+        f"Model: [dgvj-work/sqlshift-ai](https://huggingface.co/dgvj-work/sqlshift-ai) · "
         f"[GitHub](https://github.com/dgvj-work/sql_shift_ai)"
     )
     return "\n".join(explain), output, badge, share
@@ -616,6 +617,13 @@ def load_playground_example(index: int) -> tuple[str, str, str]:
     idx = max(0, min(int(index), len(PLAYGROUND_EXAMPLES) - 1))
     sql, source, target = PLAYGROUND_EXAMPLES[idx]
     return sql, source, target
+
+
+def load_and_convert_example(index: int) -> tuple[str, str, str, str, str, str, str]:
+    """Load a preset and immediately convert — one-click wow path for HF visitors."""
+    sql, source, target = load_playground_example(index)
+    explain, output, badge, share = run_hero_agent(sql, source, target)
+    return sql, source, target, explain, output, badge, share
 
 
 AGENT_PROMPTS = [
@@ -709,7 +717,7 @@ def submit_eval_score(name: str, summary: dict | None) -> str:
         fuzzy=summary.get("fuzzy", 0),
         pass_rate=summary.get("pass_rate", 0),
         n_pairs=summary.get("n_pairs", 0),
-        notes="SQLShiftAI hybrid translator",
+        notes="MorphSQL hybrid translator",
     )
     return format_leaderboard_md(board)
 

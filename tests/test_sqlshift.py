@@ -1,4 +1,4 @@
-"""Tests for SQLShiftAI."""
+"""Tests for MorphSQL / sqlshift-ai."""
 
 import re
 from pathlib import Path
@@ -175,7 +175,8 @@ class TestTranslator:
         assert "COALESCE" in out.upper()
         assert "Confidence" in md or "%" in md or "VERTICA" in md.upper()
         assert "%" in badge
-        assert "Share" in share or "MorphSQL" in share or "morph" in share.lower()
+        assert "MorphSQL" in share
+        assert "dgvj-work/sqlshift-ai" in share
 
     def test_ai_risk_model_and_pipeline(self):
         from sqlshift.ai import pipeline, train_and_save

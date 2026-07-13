@@ -1,17 +1,18 @@
 # MorphSQL
 
-**AI SQL Migration Agent** — chat agent, downloadable risk model, behavior RAG, hybrid codegen, dbt emission.
+Convert Vertica / Oracle / Redshift / BigQuery SQL to **Snowflake**, **BigQuery**, or a **dbt** project.
 
+[![Space](https://img.shields.io/badge/🤗%20Space-MorphSQL-blue)](https://huggingface.co/spaces/dgvj-work/sqlshift-ai)
 [![GitHub](https://img.shields.io/badge/GitHub-dgvj--work%2Fsql__shift__ai-blue)](https://github.com/dgvj-work/sql_shift_ai)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 
-> Morph legacy warehouse SQL into Snowflake / BigQuery / dbt with an AI agent (`sqlshift-ai` package).
+Hybrid rewrite rules + sqlglot + a downloadable risk classifier. Package name: `sqlshift-ai`.
 
 ```python
 from sqlshift.ai import pipeline
-print(pipeline("sql-risk-classification")("EXECUTE IMMEDIATE 'x'"))
 print(pipeline("sql-migration")("SELECT ZEROIFNULL(a) FROM t"))
+print(pipeline("sql-risk-classification")("EXECUTE IMMEDIATE 'x'"))
 ```
 
 

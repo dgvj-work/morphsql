@@ -10,46 +10,41 @@ tags:
   - text-generation
   - text-classification
   - rag
-  - llm
   - sklearn
   - migration
   - dbt
+  - snowflake
 datasets:
   - dgvj-work/vertica-snowflake-pairs
 ---
 
-# MorphSQL — AI SQL Migration Agent
+# MorphSQL
 
-Downloadable **AI risk classifier** + agent toolchain (package: `sqlshift-ai`).
+Convert Vertica / Oracle / Redshift / BigQuery SQL to Snowflake, BigQuery, or dbt.
 
-## Files (Hub downloads)
-- `model/risk_classifier.joblib` — sklearn TF-IDF + LogisticRegression (`low`/`medium`/`high`)
-- `model/rewrite_vocabulary.json` — SQL rewrite lexicon
-- `model/config.json` — dialects + metadata
+## Artifacts
+- `risk_classifier.joblib` — migration risk (`low` / `medium` / `high`)
+- `rewrite_vocabulary.json` — rewrite lexicon
+- `config.json` — dialect metadata
 
-## Pipelines
+## Quick start
 
 ```python
 from sqlshift.ai import pipeline
 
-# Risk classification (text-classification style)
-risk = pipeline("sql-risk-classification")
-print(risk("CREATE PROCEDURE p AS BEGIN EXECUTE IMMEDIATE 'x'; END;"))
-
-# Full migration agent
-migrate = pipeline("sql-migration")
-print(migrate("SELECT ZEROIFNULL(a) FROM t", source="vertica", target="snowflake"))
+print(pipeline("sql-risk-classification")("EXECUTE IMMEDIATE 'x'"))
+print(pipeline("sql-migration")("SELECT ZEROIFNULL(a) FROM t", source="vertica", target="snowflake"))
 ```
 
 ```python
 from huggingface_hub import hf_hub_download
 import joblib
+
 path = hf_hub_download("dgvj-work/sqlshift-ai", "risk_classifier.joblib")
 print(joblib.load(path).predict(["SELECT 1"]))
 ```
 
-## Agent tools
-`convert_sql` · `predict_risk` · `retrieve_behavior` · `emit_dbt`
+## Demo
+https://huggingface.co/spaces/dgvj-work/sqlshift-ai
 
-## Space
-Chat UI: duplicate the MorphSQL Space and talk to the agent.
+Author: Digvijay Waghela · Apache-2.0

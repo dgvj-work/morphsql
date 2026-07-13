@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "sqlshift-ai"
 version = "0.4.0"
-description = "AI SQL Migration Agent — chat agent, risk classifier, RAG, hybrid codegen, dbt emission"
+description = "MorphSQL: convert Vertica/Oracle/Redshift SQL to Snowflake, BigQuery, or dbt"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
@@ -47,7 +47,7 @@ dependencies = [
 
 [project.optional-dependencies]
 demo = [
-    "gradio>=4.44",
+    "gradio>=5.49,<6",
     "plotly>=5.18",
     "huggingface_hub>=0.23",
 ]
@@ -65,9 +65,9 @@ dev = [
 sqlshift = "sqlshift.cli:app"
 
 [project.urls]
-Homepage = "https://huggingface.co/spaces/migrationiq/sqlshift-ai"
+Homepage = "https://huggingface.co/spaces/dgvj-work/sqlshift-ai"
 Repository = "https://github.com/dgvj-work/sql_shift_ai"
-Documentation = "https://huggingface.co/spaces/migrationiq/sqlshift-ai"
+Documentation = "https://huggingface.co/spaces/dgvj-work/sqlshift-ai"
 "Bug Tracker" = "https://github.com/dgvj-work/sql_shift_ai/issues"
 
 [tool.hatch.build.targets.wheel]
