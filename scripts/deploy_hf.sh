@@ -35,6 +35,23 @@ fi
 echo "Preflight: Space import + convert smoke…"
 python scripts/check_space.py
 
+# HF rejects Space README metadata if short_description > 60 chars
+python - <<'PY'
+from pathlib import Path
+import re
+import sys
+text = Path("README_HF_SPACE.md").read_text(encoding="utf-8")
+match = re.search(r"^short_description:\s*(.*)$", text, flags=re.M)
+if not match:
+    print("ERROR: short_description missing in README_HF_SPACE.md")
+    sys.exit(1)
+value = match.group(1).strip().strip("\"'")
+if len(value) > 60:
+    print(f"ERROR: short_description is {len(value)} chars (max 60): {value!r}")
+    sys.exit(1)
+print(f"OK short_description ({len(value)} chars): {value}")
+PY
+
 echo "Ensuring eval pairs + risk model artifacts…"
 python -c "from morphsql.eval.pairs import ensure_pairs_file; print(ensure_pairs_file())"
 python -c "from pathlib import Path; from morphsql.ai.risk_model import MODEL_PATH, train_and_save; train_and_save() if not Path(MODEL_PATH).exists() else print(MODEL_PATH)"

@@ -9,7 +9,7 @@ python_version: "3.11"
 app_file: app.py
 pinned: true
 license: apache-2.0
-short_description: Upload SQL → pandas / PySpark / Snowflake / BigQuery / dbt + download
+short_description: Convert SQL to pandas, PySpark, warehouses, or dbt
 tags:
   - sql
   - pandas
