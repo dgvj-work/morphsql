@@ -1,0 +1,97 @@
+"""Tests for MigrationIQ / SQLShift AI."""
+
+import pytest
+from pathlib import Path
+
+from sqlshift.models import Dialect, MigrationObject, ObjectType
+from sqlshift.scanner.repository import scan_directory
+from sqlshift.translator.engine import translate_sql
+from sqlshift.risk.scorer import score_object, extract_business_rules
+from sqlshift.parser.sql_parser import count_sql_complexity, extract_tables
+from sqlshift.pipeline import MigrationPipeline
+from sqlshift.validation.reconciliation import generate_incremental_strategy
+
+EXAMPLES = Path(__file__).parent.parent / "examples" / "vertica_legacy"
+
+
+class TestScanner:
+    def test_scan_directory_finds_objects(self):
+        objects = scan_directory(EXAMPLES)
+        assert len(objects) >= 4
+        types = {o.object_type for o in objects}
+        assert ObjectType.STORED_PROCEDURE in types or ObjectType.SQL_SCRIPT in types
+
+    def test_objects_have_sql_content(self):
+        objects = scan_directory(EXAMPLES)
+        for obj in objects:
+            assert len(obj.source_sql) > 0
+            assert obj.name
+
+
+class TestParser:
+    def test_extract_tables(self):
+        sql = "SELECT a FROM staging.customers JOIN analytics.orders ON a.id = b.id"
+        tables = extract_tables(sql, Dialect.VERTICA)
+        assert "STAGING.CUSTOMERS" in tables or "CUSTOMERS" in str(tables).upper()
+
+    def test_complexity_metrics(self):
+        sql = "WITH cte AS (SELECT 1) SELECT * FROM cte JOIN t ON 1=1"
+        metrics = count_sql_complexity(sql, Dialect.VERTICA)
+        assert metrics["ctes"] >= 1
+        assert metrics["joins"] >= 1
+
+
+class TestTranslator:
+    def test_translate_vertica_to_snowflake(self):
+        sql = "SELECT ZEROIFNULL(amount) FROM staging.transactions"
+        translated, confidence, auto, review = translate_sql(sql, Dialect.VERTICA, Dialect.SNOWFLAKE)
+        assert "COALESCE" in translated.upper() or "ZEROIFNULL" not in translated.upper()
+        assert confidence > 0
+
+    def test_detects_dynamic_sql_review(self):
+        sql = "EXECUTE IMMEDIATE 'SELECT 1'"
+        _, _, _, review = translate_sql(sql, Dialect.VERTICA, Dialect.SNOWFLAKE)
+        assert any("dynamic" in r.lower() for r in review)
+
+
+class TestRiskScorer:
+    def test_score_simple_query(self):
+        obj = MigrationObject(name="TEST", object_type=ObjectType.SQL_SCRIPT, source_sql="SELECT 1")
+        scored = score_object(obj, Dialect.VERTICA, Dialect.SNOWFLAKE)
+        assert scored.complexity_score >= 0
+        assert scored.risk_level is not None
+
+    def test_extract_business_rules(self):
+        sql = """SELECT CASE WHEN x > 5 THEN 'HIGH' WHEN x > 2 THEN 'MED' ELSE 'LOW' END FROM t"""
+        rules = extract_business_rules(sql)
+        assert len(rules) >= 1
+
+
+class TestPipeline:
+    def test_full_analyze(self):
+        pipeline = MigrationPipeline(source=Dialect.VERTICA, target=Dialect.SNOWFLAKE)
+        report = pipeline.analyze(EXAMPLES)
+        assert report.dashboard.total_objects >= 4
+        assert len(report.objects) >= 4
+
+    def test_convert_pipeline(self):
+        pipeline = MigrationPipeline(source=Dialect.VERTICA, target=Dialect.SNOWFLAKE)
+        report = pipeline.analyze(EXAMPLES)
+        report = pipeline.convert(report)
+        converted = sum(1 for o in report.objects if o.target_sql)
+        assert converted >= 1
+
+    def test_validate_pipeline(self):
+        pipeline = MigrationPipeline(source=Dialect.VERTICA, target=Dialect.SNOWFLAKE)
+        report = pipeline.analyze(EXAMPLES)
+        report = pipeline.convert(report)
+        report = pipeline.validate(report)
+        assert len(report.validation_results) > 0
+
+
+class TestIncrementalStrategy:
+    def test_delete_insert_pattern(self):
+        sql = "DELETE FROM t WHERE d = 1; INSERT INTO t SELECT * FROM s"
+        result = generate_incremental_strategy(sql)
+        assert result["legacy_pattern"] == "Delete and reload"
+        assert result["dbt_materialized"] == "incremental"

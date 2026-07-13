@@ -1,0 +1,5 @@
+[README.md]
+README_HF_SPACE.md linguist-generated=false
+
+[examples/**]
+*.sql linguist-language=SQL

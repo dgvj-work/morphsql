@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sqlshift-ai"
+version = "0.1.0"
+description = "AI-powered data platform migration intelligence — discover, translate, validate, and optimize SQL workloads across cloud warehouses"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Digvijay Waghela", email = "digvijay.vaghela@yahoo.com" }
+]
+keywords = [
+    "sql", "migration", "vertica", "snowflake", "dbt",
+    "data-engineering", "lineage", "data-warehouse", "etl",
+    "huggingface", "llm", "sqlglot"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Code Generators",
+]
+dependencies = [
+    "sqlglot>=25.0.0",
+    "networkx>=3.2",
+    "jinja2>=3.1",
+    "pyyaml>=6.0",
+    "pydantic>=2.5",
+    "rich>=13.7",
+    "typer>=0.12",
+    "click>=8.1",
+    "pandas>=2.1",
+    "tabulate>=0.9",
+]
+
+[project.optional-dependencies]
+demo = [
+    "gradio>=4.44",
+    "plotly>=5.18",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+sqlshift = "sqlshift.cli:app"
+
+[project.urls]
+Homepage = "https://huggingface.co/spaces/migrationiq/sqlshift-ai"
+Repository = "https://github.com/migrationiq/sqlshift-ai"
+Documentation = "https://huggingface.co/spaces/migrationiq/sqlshift-ai"
+"Bug Tracker" = "https://github.com/migrationiq/sqlshift-ai/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sqlshift"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
