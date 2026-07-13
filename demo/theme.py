@@ -216,6 +216,8 @@ def build_theme():
         button_primary_background_fill_dark=C_ACCENT,
         button_primary_text_color="#ffffff",
         button_primary_text_color_dark="#ffffff",
+        button_secondary_background_fill="#1e293b",
+        button_secondary_background_fill_dark="#1e293b",
         button_secondary_text_color=C_TEXT,
         button_secondary_text_color_dark=C_TEXT,
         link_text_color=C_ACCENT,

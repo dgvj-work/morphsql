@@ -89,7 +89,7 @@ def _build_demo() -> gr.Blocks:
                     )
                     upload_convert_btn = gr.Button(
                         "Upload & Convert → Download",
-                        variant="secondary",
+                        variant="primary",
                     )
 
                 status = gr.Textbox(
