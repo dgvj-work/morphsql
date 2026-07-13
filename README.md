@@ -18,12 +18,138 @@ Built for data scientists: upload or paste SQL → convert → sample preview �
 | Hugging Face Space / model | `dgvj-work/morphsql` |
 | GitHub | `dgvj-work/morphsql` |
 
-```python
-from morphsql.ai import pipeline
-print(pipeline("sql-migration")("SELECT COALESCE(a, 0) FROM t", source="snowflake", target="pandas"))
-print(pipeline("sql-migration")("SELECT COALESCE(a, 0) FROM t", source="snowflake", target="pyspark"))
+---
+
+## Try it online (no install)
+
+1. Open the Space: [huggingface.co/spaces/dgvj-work/morphsql](https://huggingface.co/spaces/dgvj-work/morphsql)
+2. Choose **SQL is written for** + **Convert to** (start with **Python (pandas)**)
+3. Paste SQL or upload `.sql` / `.zip`
+4. Click **Convert** (or **Upload & Convert → Download**)
+5. Review sample preview + download the converted file
+
+---
+
+## Local end-to-end runbook (clone → verify → run)
+
+Requires **Python 3.10+**.
+
+### 1. Download and install
+
+```bash
+git clone https://github.com/dgvj-work/morphsql.git
+cd morphsql
+
+python3 -m venv .venv
+# macOS / Linux
+source .venv/bin/activate
+# Windows (PowerShell)
+# .\.venv\Scripts\Activate.ps1
+
+pip install -U pip
+pip install -e ".[dev,demo]"
 ```
 
+### 2. Verify everything works (recommended)
+
+This runs tests, CLI analyze/migrate on `examples/vertica_legacy`, Gradio handlers, and builds the UI:
+
+```bash
+chmod +x scripts/run_local.sh   # first time only (macOS/Linux)
+./scripts/run_local.sh
+```
+
+Expect: **44 tests passed**, HTML report under `migration-output/`, and `All checks passed`.
+
+Quick smoke checks (same venv):
+
+```bash
+morphsql version
+python scripts/check_space.py
+python -c "from morphsql.ai import pipeline; print(pipeline('sql-migration')('SELECT COALESCE(a,0) FROM t', source='snowflake', target='pandas')['converted_sql'][:80])"
+```
+
+### 3. Launch the interactive workbench
+
+```bash
+python app.py
+```
+
+Open the local URL Gradio prints (usually `http://127.0.0.1:7860`).
+
+### 4. CLI recipes (same example repo)
+
+Always pass `--source` / `--target` for the Vertica sample:
+
+```bash
+# Portfolio analyze → HTML + JSON
+morphsql analyze ./examples/vertica_legacy \
+  --source vertica --target snowflake -o ./migration-output
+
+# Single-file convert → pandas / PySpark `.py` on disk
+morphsql convert ./examples/vertica_legacy/queries/customer_lifetime_value.sql \
+  --source vertica --target pandas -o ./migration-output/pandas
+
+morphsql convert ./examples/vertica_legacy/queries/customer_lifetime_value.sql \
+  --source vertica --target pyspark -o ./migration-output/pyspark
+
+# Folder convert → HTML report for the whole sample repo
+morphsql convert ./examples/vertica_legacy \
+  --source vertica --target snowflake -o ./migration-output
+
+# Full pipeline: analyze → convert → validate → report + dbt scaffold
+morphsql migrate ./examples/vertica_legacy \
+  --source vertica --target snowflake --output ./migration-output
+
+# Open the report (macOS)
+open ./migration-output/migration_report.html
+```
+
+Other useful commands: `morphsql convert … --generate-dbt`, `morphsql validate …`, `morphsql --help`.
+
+### 5. Use in your own Python code
+
+**A. One-liner migration pipeline (query → pandas / PySpark)**
+
+```python
+from morphsql.ai import pipeline
+
+mig = pipeline("sql-migration")
+print(mig("SELECT ZEROIFNULL(a) FROM t", source="vertica", target="pandas")["converted_sql"])
+print(mig("SELECT ZEROIFNULL(a) FROM t", source="vertica", target="pyspark")["converted_sql"])
+print(mig("SELECT ZEROIFNULL(a) FROM t", source="vertica", target="snowflake")["converted_sql"])
+```
+
+**B. Repository migration SDK**
+
+```python
+from morphsql.pipeline import MigrationPipeline
+from morphsql.models import Dialect
+from morphsql.intelligence.runbook import generate_runbook
+
+pipe = MigrationPipeline(source=Dialect.VERTICA, target=Dialect.SNOWFLAKE)
+report = pipe.analyze("./examples/vertica_legacy")
+report = pipe.convert(report)
+report = pipe.validate(report)
+
+print(f"Objects: {len(report.objects)}")
+print(generate_runbook(report)[:500])
+```
+
+**C. Direct translator (no agent wrapper)**
+
+```python
+from morphsql.translator.engine import translate_sql
+from morphsql.models import Dialect
+
+code, confidence, auto, review = translate_sql(
+    "SELECT ZEROIFNULL(amount) FROM staging.orders",
+    source=Dialect.VERTICA,
+    target=Dialect.PANDAS,
+)
+print(code)
+print(f"confidence={confidence}%  auto={auto}  review={review}")
+```
 
 ---
 
@@ -32,6 +158,7 @@ print(pipeline("sql-migration")("SELECT COALESCE(a, 0) FROM t", source="snowflak
 | Capability | SQL converters | MorphSQL |
 |-----------|----------------|-------------|
 | Single query translation | Yes | Yes |
+| **SQL → pandas / PySpark codegen** | Rare | Yes |
 | **Repository-level discovery** | No | Yes |
 | **Dependency lineage graphs** | No | Yes |
 | **Portfolio risk scoring** | Partial | Yes |
@@ -43,92 +170,29 @@ print(pipeline("sql-migration")("SELECT COALESCE(a, 0) FROM t", source="snowflak
 
 ---
 
-## Quick start
-
-```bash
-git clone https://github.com/dgvj-work/morphsql.git
-cd morphsql
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,demo]"
-
-# Full local verification
-./scripts/run_local.sh
-
-# Launch interactive workbench
-python app.py
-```
-
-### CLI
-
-```bash
-# Analyze repository
-morphsql analyze ./examples/vertica_legacy --source vertica --target snowflake -o report/
-
-# Full migration pipeline
-morphsql migrate ./examples/vertica_legacy --output migration-output/
-```
-
-### Python SDK
-
-```python
-from morphsql.pipeline import MigrationPipeline
-from morphsql.models import Dialect
-from morphsql.intelligence.runbook import generate_runbook
-
-pipeline = MigrationPipeline(source=Dialect.VERTICA, target=Dialect.SNOWFLAKE)
-report = pipeline.analyze("./examples/vertica_legacy")
-report = pipeline.convert(report)
-report = pipeline.validate(report)
-
-print(generate_runbook(report))
-```
-
----
-
 ## Platform capabilities
 
-### 1. Migration Workbench
-Scan zip files or directories containing SQL, stored procedures, views, and dbt models. Produces executive summary, object inventory, and portfolio metrics.
-
-### 2. Dependency Lineage
-Interactive Plotly graph of read/write dependencies across discovered objects.
-
-### 3. Risk & Rationalization
-Each object scored 0–100 with recommended action: migrate, review, rewrite, or retire.
-
-### 4. Hybrid Translation
-Deterministic rules (ZEROIFNULL, DATEADD, procedure wrappers) + sqlglot dialect transpilation.
-
-### 5. dbt Architecture
-Decomposes stored procedures into staging / intermediate / mart models with schema tests.
-
-### 6. Validation Suite
-Generates reconciliation checks: row counts, null rates, metric tolerance, structural compilation.
-
-### 7. Migration Runbook
-Phased cutover plan with object action table and validation checklist.
-
-### 8. Migration Copilot
-LLM advisor (Hugging Face Inference API) grounded in your scan context. Ask about cutover planning, lineage impact, dbt strategy, and platform behavior differences.
+1. **Migration Workbench** — scan zip/dirs of SQL, procedures, views, dbt models  
+2. **Dependency Lineage** — Plotly graph of read/write deps  
+3. **Risk & Rationalization** — score 0–100; migrate / review / rewrite / retire  
+4. **Hybrid Translation** — rules (ZEROIFNULL, DATEADD, …) + sqlglot  
+5. **dbt Architecture** — procedures → staging / intermediate / mart  
+6. **Validation Suite** — row counts, null rates, structural checks  
+7. **Migration Runbook** — phased cutover plan  
+8. **Migration Copilot** — HF Inference API, grounded in scan context  
 
 ---
 
-## Hugging Face deployment
+## Hugging Face deployment (maintainers)
 
 ```bash
-# one-time
 pip install -U "huggingface_hub[cli]"
 hf auth login
 
-# create the Space once in the UI (Gradio SDK) or:
-#   hf repo create morphsql --type space --space_sdk gradio --organization dgvj-work
-
-# deploy Space + model + dataset
+# Create Space + model dgvj-work/morphsql once, then:
 ./scripts/deploy_hf.sh
 # → https://huggingface.co/spaces/dgvj-work/morphsql
 ```
-
-**Hugging Face Space (one-time)** — create Gradio Space + model `dgvj-work/morphsql`, then run `./scripts/deploy_hf.sh`.
 
 Preflight only (no upload):
 
@@ -136,23 +200,24 @@ Preflight only (no upload):
 python scripts/check_space.py
 ```
 
-The Space card / metadata lives in `README_HF_SPACE.md` (copied to Space `README.md` on deploy).
-Set `HF_TOKEN` in Space secrets (automatic on HF). Optional: `MORPHSQL_MODEL` to change the copilot model.
+Space card metadata lives in `README_HF_SPACE.md` (copied to Space `README.md` on deploy).  
+Optional Space secret: `MORPHSQL_MODEL` for the copilot model.
 
 ---
 
 ## Project structure
 
 ```
-morphsql/           Core package
+morphsql/           Core package (CLI, pipeline, translators)
 demo/               Gradio handlers + theme
-app.py              Hugging Face Space entry
+app.py              Local / Hugging Face Space entry
 examples/           Sample Vertica legacy repo
-PROJECT.md          AI/developer context handoff doc
+scripts/run_local.sh  One-command local verification
+PROJECT.md          Architecture + AI handoff
 tests/
 ```
 
-**For AI continuation:** read [`PROJECT.md`](PROJECT.md) — contains full architecture, module map, and roadmap.
+**For AI continuation:** read [`PROJECT.md`](PROJECT.md).
 
 ---
 
@@ -160,12 +225,25 @@ tests/
 
 | Source | Target | Status |
 |--------|--------|--------|
-| Vertica | Snowflake / dbt-snowflake | Supported |
-| Vertica | BigQuery | Supported |
+| Vertica / Oracle / Redshift / BigQuery / Snowflake | **pandas** | Supported |
+| Vertica / Oracle / Redshift / BigQuery / Snowflake | **PySpark** | Supported |
+| Vertica | Snowflake / dbt-snowflake / BigQuery | Supported |
 | Oracle | Snowflake / dbt-snowflake / BigQuery | Supported |
 | Redshift | Snowflake / dbt-snowflake / BigQuery | Supported |
 | BigQuery | Snowflake / dbt-snowflake | Supported |
 | Snowflake | BigQuery | Supported |
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `morphsql: command not found` | Activate `.venv`, then `pip install -e ".[dev,demo]"` |
+| Gradio import / theme errors | Use Python 3.10–3.12 and reinstall `.[demo]` |
+| Preview empty for procedures | Expected for some procedural SQL; try a `SELECT` query |
+| sklearn / risk model warnings | Re-run `python -c "from morphsql.ai.risk_model import train_and_save; train_and_save(force=True)"` |
+| `./scripts/run_local.sh` permission denied | `chmod +x scripts/run_local.sh` |
 
 ---
 

@@ -59,11 +59,18 @@ from demo.handlers import (
 )
 from app import _build_demo
 
-sql = Path('examples/vertica_legacy/procedures/SP_BUILD_CUSTOMER_DAILY.sql').read_text()
-notes, output, status, share, preview, path, nb, api = convert_for_ui(sql, 'vertica', 'pandas')
-assert output.strip() and isinstance(preview, pd.DataFrame)
+# Simple SELECT — must produce a live sample preview DataFrame
+simple = 'SELECT ZEROIFNULL(amount) AS amt FROM staging.orders WHERE id = 1'
+notes, output, status, share, preview, path, nb, api = convert_for_ui(simple, 'vertica', 'pandas')
+assert output.strip() and 'pandas' in output.lower()
+assert isinstance(preview, pd.DataFrame) and not preview.empty
 
-analysis, fig, badge, out, notes2 = analyze_sql_object(sql, 'vertica', 'snowflake')
+# Procedure — conversion must succeed (preview may be empty for procedural SQL)
+proc = Path('examples/vertica_legacy/procedures/SP_BUILD_CUSTOMER_DAILY.sql').read_text()
+notes2, output2, *_ = convert_for_ui(proc, 'vertica', 'pandas')
+assert output2.strip()
+
+analysis, fig, badge, out, notes3 = analyze_sql_object(proc, 'vertica', 'snowflake')
 assert out.strip() and badge
 
 wb = get_sample_workbench()
@@ -76,7 +83,7 @@ rag = run_behavior_rag('ZEROIFNULL', 'vertica', 'snowflake')
 assert 'ZEROIFNULL' in rag.upper() or len(rag) > 20
 
 assert _build_demo() is not None
-print('   ✓ Convert, assess, workbench, features, RAG, Gradio build OK')
+print('   ✓ Convert, preview, assess, workbench, features, RAG, Gradio build OK')
 "
 
 echo ""
@@ -89,8 +96,8 @@ echo "     python app.py"
 echo ""
 echo "  2. Or use the CLI:"
 echo "     morphsql analyze examples/vertica_legacy --source vertica --target snowflake"
-echo "     morphsql convert examples/vertica_legacy --source vertica --target dbt-snowflake --generate-dbt"
-echo "     morphsql migrate examples/vertica_legacy --output migration-output"
+echo "     morphsql convert examples/vertica_legacy/queries/customer_lifetime_value.sql --source vertica --target pandas -o migration-output/pandas"
+echo "     morphsql migrate examples/vertica_legacy --source vertica --target snowflake --output migration-output"
 echo ""
 echo "  3. Open the HTML report:"
 echo "     open migration-output/migration_report.html"
