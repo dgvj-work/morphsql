@@ -167,14 +167,15 @@ class TestTranslator:
     def test_hero_agent(self):
         from demo.handlers import run_hero_agent
 
-        md, out, badge = run_hero_agent(
+        md, out, badge, share = run_hero_agent(
             "SELECT ZEROIFNULL(a) FROM t WHERE d >= CURRENT_DATE - 7",
             "vertica",
             "snowflake",
         )
         assert "COALESCE" in out.upper()
-        assert "Agent" in md or "Confidence" in md
+        assert "Confidence" in md or "%" in md or "VERTICA" in md.upper()
         assert "%" in badge
+        assert "Share" in share or "SQLShiftAI" in share
 
     def test_cte_query_to_dbt_models(self):
         from sqlshift.dbt_generator.decomposer import decompose_to_dbt

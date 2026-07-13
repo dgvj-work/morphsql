@@ -505,8 +505,11 @@ WHERE order_date >= CURRENT_DATE - 30"""
 FEATURE_SQL_PATH = Path(__file__).parent.parent / "examples" / "ml_features" / "churn_feature_sql.sql"
 
 
-def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str]:
-    """One-shot agent demo: convert + explain + risk summary."""
+def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, str]:
+    """One-shot agent demo: convert + explain + risk + share blurb.
+
+    Returns: explain_md, converted_sql, badge, share_md
+    """
     from sqlshift.intelligence.rag import get_rag
     from sqlshift.risk.scorer import score_object
 
@@ -532,38 +535,78 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str]:
     rag = get_rag()
     hits = rag.retrieve(sql, top_k=3, source=source, target=target if not wants_dbt else "snowflake")
 
+    # Diff highlights for viral before/after readability
+    highlights: list[str] = []
+    for a in auto[:8]:
+        if "→" in a or "Date" in a or "Dialect" in a or "Removed" in a or "Converted" in a:
+            highlights.append(f"- {a}")
+
     explain = [
-        f"### SQL Migration Agent · {source} → {target}",
+        f"### {source.upper()} → {target.upper()}",
         "",
-        f"**Confidence:** {conf:.0f}%  ·  **Risk:** {obj.risk_level.value} "
-        f"({obj.complexity_score}/100)  ·  **Category:** "
-        f"{obj.migration_category.value.replace('_', ' ')}",
+        f"**{conf:.0f}%** confidence · **{obj.risk_level.value}** risk "
+        f"({obj.complexity_score}/100)",
         "",
-        "#### What the agent did",
     ]
-    if auto:
-        explain.extend(f"- {a}" for a in auto[:12])
-    else:
-        explain.append("- Rule transforms + dialect transpilation")
+    if highlights:
+        explain.append("**Key rewrites**")
+        explain.extend(highlights)
+        explain.append("")
     if review:
+        explain.append("**Needs review**")
+        explain.extend(f"- {r}" for r in review[:5])
         explain.append("")
-        explain.append("#### Needs review")
-        explain.extend(f"- {r}" for r in review[:8])
     if hits:
+        explain.append("**Behavior RAG**")
+        for h in hits[:3]:
+            explain.append(f"- **{h.name}**: {h.recommendation}")
         explain.append("")
-        explain.append("#### Retrieved behavior knowledge (RAG)")
-        for h in hits:
-            explain.append(
-                f"- **{h.name}** ({h.severity}): {h.recommendation}"
-            )
-    explain.append("")
-    explain.append(
-        "_Agent stack: hybrid rules + sqlglot + behavior RAG"
-        + (" + dbt decomposer" if wants_dbt else "")
-        + " + optional HF LLM copilot._"
+
+    badge = f"{conf:.0f}% · {obj.risk_level.value} · {obj.complexity_score}/100"
+    share = (
+        f"### Share this\n\n"
+        f"Converted **{source} → {target}** with SQLShiftAI in one click "
+        f"({conf:.0f}% conf). Hybrid rules + sqlglot + RAG"
+        f"{' + dbt project' if wants_dbt else ''}.\n\n"
+        f"Space: duplicate & try your SQL · "
+        f"[GitHub](https://github.com/dgvj-work/sql_shift_ai)"
     )
-    badge = f"{conf:.0f}% conf · {obj.risk_level.value} · {obj.complexity_score}/100"
-    return "\n".join(explain), output, badge
+    return "\n".join(explain), output, badge, share
+
+
+PLAYGROUND_EXAMPLES = [
+    [
+        HERO_EXAMPLE,
+        "vertica",
+        "snowflake",
+    ],
+    [
+        "SELECT NVL(amount, 0), SYSDATE FROM dual WHERE ROWNUM <= 10",
+        "oracle",
+        "snowflake",
+    ],
+    [
+        "SELECT GETDATE(), LISTAGG(name, ',') FROM users GROUP BY 1",
+        "redshift",
+        "bigquery",
+    ],
+    [
+        "SELECT IFNULL(a, 0), STRING_AGG(b, ',') FROM t GROUP BY a",
+        "bigquery",
+        "snowflake",
+    ],
+    [
+        """CREATE OR REPLACE PROCEDURE p(load_date DATE) AS $$
+BEGIN
+  CREATE LOCAL TEMP TABLE tmp ON COMMIT PRESERVE ROWS AS
+  SELECT customer_id, ZEROIFNULL(amount) AS amount
+  FROM staging.orders WHERE order_date = load_date;
+  INSERT INTO analytics.daily SELECT * FROM tmp;
+END; $$;""",
+        "vertica",
+        "dbt-snowflake",
+    ],
+]
 
 
 def run_eval_suite(limit: int, category: str) -> tuple[str, str, dict]:

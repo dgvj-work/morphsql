@@ -1,14 +1,14 @@
 ---
 title: SQLShiftAI
-emoji: robot
-colorFrom: blue
-colorTo: indigo
+emoji: zap
+colorFrom: yellow
+colorTo: blue
 sdk: gradio
 sdk_version: "4.44.0"
 app_file: app.py
 pinned: true
 license: apache-2.0
-short_description: SQL Migration Agent — LLM tools, hybrid codegen, RAG, evals, dbt
+short_description: Paste legacy SQL → Snowflake / dbt / BigQuery in one click
 tags:
   - agent
   - agents
@@ -16,43 +16,38 @@ tags:
   - code
   - text-generation
   - sql
-  - migration
-  - dbt
-  - snowflake
   - rag
   - evaluation
-  - data-science
+  - snowflake
+  - dbt
   - machine-learning
-  - feature-engineering
 ---
 
-# SQLShiftAI — SQL Migration Agent
+# SQLShiftAI — convert legacy SQL in one click
 
-**Not a toy SQL converter.** Hybrid rules + sqlglot + behavior RAG + optional Hugging Face LLM that converts legacy warehouse SQL, scores risk, and can emit a **dbt project**.
+**Before → After playground.** Paste Vertica / Oracle / Redshift / BigQuery SQL and get Snowflake, dbt, or BigQuery — with confidence, behavior RAG, and optional dbt project emission.
 
-## Try in 30 seconds
-1. Open **Agent Demo**
-2. Click **Run agent** on the sample Vertica SQL
-3. See conversion, explanation, RAG hits, confidence
+## 30-second demo
+1. Stay on **Playground** (already open)
+2. Click an example under the editors **or** hit **Convert with Agent**
+3. Read the AFTER panel + share blurb
+
+No signup. Duplicate this Space and try your own SQL.
+
+## Why this Space
+| Hook | Detail |
+|------|--------|
+| Instant wow | Side-by-side BEFORE / AFTER |
+| Agent framing | Hybrid rules + sqlglot + RAG (+ optional HF LLM) |
+| ML eval | Exact / token F1 / fuzzy + leaderboard |
+| Dataset | `datasets/vertica_snowflake_pairs.jsonl` (publishable to Hub) |
+| DS path | ML Feature SQL → dbt feature mart in Advanced Lab |
 
 ## Tabs
-| Tab | What it is |
-|-----|------------|
-| Agent Demo | One-shot convert + explain + RAG |
-| Eval & Leaderboard | Exact / token F1 / fuzzy on pair dataset |
-| Behavior RAG | Retrieve NULL/timezone/MERGE diffs |
-| ML Feature SQL | Feature/label SQL → Snowflake / dbt mart |
-| Object Inspector | Deep single-object conversion |
-| Migration Workbench | Repo scan, lineage, runbook |
-| Migration Copilot | Grounded HF Inference advisor |
+- **Playground** — the viral loop
+- **Eval** — benchmark the translator
+- **Advanced Lab** — RAG, ML features, inspector, repo workbench, copilot (lazy-loaded)
 
-## Dataset
-Bundled pairs: `datasets/vertica_snowflake_pairs.jsonl`  
-Publish: `python scripts/publish_dataset.py --repo <user>/vertica-snowflake-pairs`
-
-## Stack
-- Hybrid deterministic translation (trustworthy codegen)
-- sqlglot dialect matrix
-- Behavior knowledge RAG (keyword; sentence-transformers optional)
-- Eval harness for ML-style metrics
-- Optional `HF_TOKEN` for Inference API copilot
+## Links
+- GitHub: https://github.com/dgvj-work/sql_shift_ai
+- Dataset publish: `python scripts/publish_dataset.py --repo <user>/vertica-snowflake-pairs`

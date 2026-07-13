@@ -20,18 +20,36 @@ CUSTOM_CSS = f"""
 .header-block {{
     border-bottom: 1px solid {C_BORDER};
     padding-bottom: 1rem;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
+}}
+.header-block.hero-viral .eyebrow {{
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    font-weight: 600;
+    color: {C_ACCENT} !important;
+    margin-bottom: 0.35rem;
 }}
 .header-block h1 {{
-    font-size: 1.4rem;
-    font-weight: 650;
+    font-size: 1.75rem;
+    font-weight: 700;
     margin: 0;
     color: {C_TEXT} !important;
+    letter-spacing: -0.02em;
 }}
 .header-block p {{
-    margin: 0.35rem 0 0;
+    margin: 0.45rem 0 0;
     color: {C_MUTED} !important;
-    font-size: 0.9rem;
+    font-size: 1rem;
+    max-width: 46rem;
+    line-height: 1.45;
+}}
+.footer-viral {{
+    color: {C_MUTED} !important;
+    font-size: 0.78rem;
+    margin-top: 1.25rem;
+}}
+.footer-viral a {{
+    color: {C_ACCENT} !important;
 }}
 
 /* Markdown / prose readability */
