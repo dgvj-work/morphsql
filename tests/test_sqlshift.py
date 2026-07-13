@@ -375,6 +375,50 @@ class TestTranslator:
         _, _, _, _, proc_prev, _, _, _ = convert_for_ui(proc, "vertica", "dbt-snowflake")
         assert isinstance(proc_prev, pd.DataFrame), "procedure dbt preview missing"
 
+    def test_sql_upload_convert_and_download(self):
+        import tempfile
+        import zipfile
+        from pathlib import Path
+
+        import pandas as pd
+        from demo.handlers import convert_upload_for_ui, load_sql_from_upload
+
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            sql_path = td / "orders.sql"
+            sql_path.write_text(
+                "SELECT COALESCE(order_amount, 0) AS order_amount FROM staging.orders",
+                encoding="utf-8",
+            )
+            loaded = load_sql_from_upload(str(sql_path))
+            assert "order_amount" in loaded
+
+            sql_in, notes, output, status, share, preview, path, nb, api = convert_upload_for_ui(
+                str(sql_path), "", "snowflake", "pandas"
+            )
+            assert "order_amount" in sql_in
+            assert "import pandas" in output
+            assert Path(path).exists() and path.endswith(".py")
+            assert "orders" in Path(path).name
+            assert isinstance(preview, pd.DataFrame)
+
+            spark_path = convert_upload_for_ui(str(sql_path), "", "snowflake", "pyspark")[6]
+            assert Path(spark_path).exists() and spark_path.endswith(".py")
+            assert "pyspark" in Path(spark_path).name
+
+            # Zip of two SQL files → zip download
+            zpath = td / "bundle.zip"
+            with zipfile.ZipFile(zpath, "w") as zf:
+                zf.write(sql_path, arcname="a.sql")
+                zf.writestr("b.sql", "SELECT IFNULL(x, 0) AS x FROM t")
+            batch = convert_upload_for_ui(str(zpath), "", "snowflake", "pandas")
+            assert batch[6].endswith(".zip")
+            assert Path(batch[6]).exists()
+            with zipfile.ZipFile(batch[6]) as zf:
+                names = zf.namelist()
+            assert any(n.endswith("_pandas.py") for n in names)
+            assert len(names) >= 2
+
     def test_is_pandas_target(self):
         from sqlshift.translator.pandas_codegen import is_pandas_target
 

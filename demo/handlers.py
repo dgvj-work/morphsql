@@ -871,20 +871,172 @@ def run_sample_preview(
     return result.head(20), note
 
 
-def write_output_download(output: str, target: str) -> str:
+def write_output_download(
+    output: str,
+    target: str,
+    stem: str | None = None,
+) -> str:
     """Write converted output to a downloadable temp file; return path."""
-    if is_pandas_target(target) or is_pyspark_target(target):
-        suffix = ".py"
-        prefix = "morphsql_pandas_" if is_pandas_target(target) else "morphsql_pyspark_"
+    safe = re.sub(r"[^\w.\-]+", "_", (stem or "morphsql").strip())[:80] or "morphsql"
+    if is_pandas_target(target):
+        suffix, kind = ".py", "pandas"
+    elif is_pyspark_target(target):
+        suffix, kind = ".py", "pyspark"
     elif is_dbt_target(target):
-        suffix = ".txt"
-        prefix = "morphsql_output_"
+        suffix, kind = ".txt", "dbt"
     else:
-        suffix = ".sql"
-        prefix = "morphsql_output_"
-    path = Path(tempfile.gettempdir()) / f"{prefix}{abs(hash(output)) % 10_000_000}{suffix}"
+        suffix, kind = ".sql", str(target).replace("-", "_")
+    path = Path(tempfile.gettempdir()) / f"{safe}_{kind}{suffix}"
+    # Avoid collisions when converting multiple files in one session
+    if path.exists():
+        path = Path(tempfile.gettempdir()) / f"{safe}_{kind}_{abs(hash(output)) % 100_000}{suffix}"
     path.write_text(output or "", encoding="utf-8")
     return str(path)
+
+
+def _resolve_upload_path(upload_file) -> Path | None:
+    if not upload_file:
+        return None
+    if isinstance(upload_file, (list, tuple)) and upload_file:
+        upload_file = upload_file[0]
+    path = Path(str(getattr(upload_file, "name", upload_file)))
+    return path if path.exists() else None
+
+
+def _collect_sql_files(upload_file) -> list[Path]:
+    """Return SQL/text files from an upload (.sql/.txt or .zip of those)."""
+    path = _resolve_upload_path(upload_file)
+    if path is None:
+        return []
+    suffix = path.suffix.lower()
+    if suffix in {".sql", ".txt", ".ddl", ".prc", ".pkb", ".pks"}:
+        return [path]
+    if suffix == ".zip":
+        tmp = Path(tempfile.mkdtemp(prefix="morphsql_upload_"))
+        with zipfile.ZipFile(path) as zf:
+            zf.extractall(tmp)
+        files = sorted(
+            p
+            for p in tmp.rglob("*")
+            if p.is_file() and p.suffix.lower() in {".sql", ".txt", ".ddl", ".prc"}
+        )
+        return files
+    # Unknown extension — try reading as text SQL
+    return [path]
+
+
+def load_sql_from_upload(upload_file, current_sql: str = "") -> str:
+    """Load uploaded SQL into the input box (first file if a zip). Keeps current text if empty."""
+    files = _collect_sql_files(upload_file)
+    if not files:
+        return current_sql or ""
+    try:
+        return files[0].read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return current_sql or ""
+
+
+def convert_upload_for_ui(upload_file, sql: str, source: str, target: str):
+    """
+    Convert pasted SQL or an uploaded .sql/.txt/.zip.
+
+    Single file → normal Convert payload with a named download.
+    Zip with multiple SQL files → convert each and return a zip download.
+    Returns: (sql_in, notes, output, status, share, preview, download, notebook, api)
+    """
+    files = _collect_sql_files(upload_file)
+
+    if not files:
+        text = (sql or "").strip()
+        if not text:
+            empty = convert_for_ui("", source, target)
+            return ("", *empty)
+        notes, output, status, share, preview, download, nb, api = convert_for_ui(
+            text, source, target
+        )
+        return text, notes, output, status, share, preview, download, nb, api
+
+    if len(files) == 1:
+        text = files[0].read_text(encoding="utf-8", errors="replace")
+        notes, output, status, share, preview, _old_dl, nb, api = convert_for_ui(
+            text, source, target
+        )
+        download = write_output_download(output, target, stem=files[0].stem)
+        note = (
+            f"\n**Upload** · converted `{files[0].name}` → download "
+            f"`{Path(download).name}`.\n"
+        )
+        return text, notes + note, output, status, share, preview, download, nb, api
+
+    # Multi-file zip → convert each and package
+    out_dir = Path(tempfile.mkdtemp(prefix="morphsql_batch_"))
+    converted_paths: list[Path] = []
+    previews = []
+    combined_notes = [
+        f"### Batch upload · {len(files)} SQL file(s) → **{TARGET_LABELS.get(target, target)}**",
+        "",
+    ]
+    first_output = ""
+    first_sql = ""
+    statuses: list[str] = []
+
+    for fp in files:
+        try:
+            text = fp.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            combined_notes.append(f"- `{fp.name}`: read error ({exc})")
+            continue
+        if not first_sql:
+            first_sql = text
+        notes, output, status, _share, preview, _dl, _nb, _api = convert_for_ui(
+            text, source, target
+        )
+        if not first_output:
+            first_output = output
+            if preview is not None:
+                previews.append(preview)
+        if is_pandas_target(target):
+            dest = out_dir / f"{fp.stem}_pandas.py"
+        elif is_pyspark_target(target):
+            dest = out_dir / f"{fp.stem}_pyspark.py"
+        elif is_dbt_target(target):
+            dest = out_dir / f"{fp.stem}_dbt.txt"
+        else:
+            dest = out_dir / f"{fp.stem}_{target.replace('-', '_')}.sql"
+        dest.write_text(output or "", encoding="utf-8")
+        converted_paths.append(dest)
+        statuses.append(status)
+        combined_notes.append(f"- `{fp.name}` → `{dest.name}` · {status}")
+
+    zip_path = Path(tempfile.gettempdir()) / f"morphsql_batch_{target.replace('-', '_')}.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for p in converted_paths:
+            zf.write(p, arcname=p.name)
+
+    preview = previews[0] if previews else None
+    status = statuses[0] if statuses else "Batch convert"
+    share = (
+        f"Converted **{len(converted_paths)}** file(s) to `{target}`. "
+        f"Download the zip and drop files into your notebook / warehouse / dbt project.\n\n"
+        f"[Space](https://huggingface.co/spaces/dgvj-work/sqlshift-ai) · "
+        f"[GitHub](https://github.com/dgvj-work/sql_shift_ai)"
+    )
+    nb = notebook_cell(first_output, target)
+    api = hf_pipeline_snippet(first_sql or HERO_EXAMPLE, source, target)
+    notes = "\n".join(combined_notes) + (
+        f"\n\n**Download** the zip (`{zip_path.name}`) for all converted files.\n"
+    )
+    return (
+        first_sql,
+        notes,
+        first_output or "(see zip for all converted files)",
+        status,
+        share,
+        preview,
+        str(zip_path),
+        nb,
+        api,
+    )
 
 
 def notebook_cell(output: str, target: str) -> str:

@@ -14,8 +14,10 @@ from demo.handlers import (
     TARGET_DROPDOWN,
     analyze_sql_object_ui,
     convert_for_ui,
+    convert_upload_for_ui,
     copilot_chat,
     get_leaderboard_md,
+    load_sql_from_upload,
     on_example_selected,
     run_behavior_rag,
     run_eval_suite,
@@ -45,8 +47,8 @@ def _build_demo() -> gr.Blocks:
                 <div class="eyebrow">AI / ML · DATA SCIENCE · SQL → PANDAS / PYSPARK</div>
                 <h1>{__product_name__}</h1>
                 <p>Turn warehouse SQL into notebook-ready <strong>pandas</strong> or
-                <strong>PySpark</strong> for training, EDA, or Spark jobs — with a live
-                sample preview and downloadable <code>.py</code>.</p>
+                <strong>PySpark</strong> — paste or upload a file, convert, then download
+                <code>.py</code> / <code>.sql</code> to your machine.</p>
             </div>
             """
         )
@@ -55,8 +57,8 @@ def _build_demo() -> gr.Blocks:
             with gr.Tab("Convert"):
                 gr.Markdown(
                     "1. Choose input dialect + output  ·  "
-                    "2. Paste SQL or load an example  ·  "
-                    "3. **Convert** → preview + download + HF API snippet"
+                    "2. Paste SQL, load an example, or **upload** a `.sql` / `.zip`  ·  "
+                    "3. **Convert** → preview + **download** to your machine"
                 )
 
                 example = gr.Dropdown(
@@ -79,6 +81,17 @@ def _build_demo() -> gr.Blocks:
                     )
                     convert_btn = gr.Button("Convert", variant="primary")
 
+                with gr.Row():
+                    sql_upload = gr.File(
+                        label="Upload SQL (.sql / .txt) or a .zip of SQL files",
+                        file_types=[".sql", ".txt", ".ddl", ".zip"],
+                        type="filepath",
+                    )
+                    upload_convert_btn = gr.Button(
+                        "Upload & Convert → Download",
+                        variant="secondary",
+                    )
+
                 status = gr.Textbox(
                     label="Status",
                     value=_BOOT[2],
@@ -92,7 +105,7 @@ def _build_demo() -> gr.Blocks:
                         value=HERO_EXAMPLE,
                         lines=12,
                         max_lines=24,
-                        placeholder="Paste warehouse SQL used in notebooks / feature pipelines…",
+                        placeholder="Paste warehouse SQL, or upload a file above…",
                     )
                     sql_out = gr.Textbox(
                         label="Output code",
@@ -103,7 +116,7 @@ def _build_demo() -> gr.Blocks:
 
                 with gr.Row():
                     download = gr.File(
-                        label="Download output (.py / .sql)",
+                        label="Download converted file (.py / .sql / .zip)",
                         value=_BOOT[5],
                         elem_classes=["download-box"],
                     )
@@ -168,6 +181,29 @@ def _build_demo() -> gr.Blocks:
                     outputs=convert_outs,
                 )
 
+                # Upload: fill the editor immediately; button converts + refreshes download
+                sql_upload.change(
+                    load_sql_from_upload,
+                    inputs=[sql_upload, sql_in],
+                    outputs=[sql_in],
+                )
+                upload_convert_outs = [
+                    sql_in,
+                    notes,
+                    sql_out,
+                    status,
+                    share,
+                    preview,
+                    download,
+                    notebook,
+                    api_code,
+                ]
+                upload_convert_btn.click(
+                    convert_upload_for_ui,
+                    inputs=[sql_upload, sql_in, source, target],
+                    outputs=upload_convert_outs,
+                )
+
             with gr.Tab("Guide"):
                 gr.Markdown(
                     f"""
@@ -185,10 +221,10 @@ Warehouse SQL often lives in BI tools. MorphSQL rewrites dialect quirks (NVL, ZE
 into pandas or PySpark you can run in Jupyter / Colab / Databricks.
 
 ## Recommended workflow
-1. Convert SQL → **Python (pandas)** or **Python (PySpark)**
-2. Check the **sample preview** (works for every output target)
-3. Copy the **HF pipeline** snippet
-4. Replace synthetic tables with real data
+1. Paste SQL, load an example, or **upload** a `.sql` / `.zip`
+2. Choose **Convert to** (pandas / PySpark / Snowflake / BigQuery / dbt)
+3. Click **Convert** or **Upload & Convert → Download**
+4. Download the `.py` / `.sql` / `.zip` to your machine and replace synthetic tables with real data
 
 ## Output choices
 | Convert to | Best for |
