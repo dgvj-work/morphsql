@@ -7,12 +7,11 @@ Convert Vertica / Oracle / Redshift / BigQuery / Snowflake SQL to **pandas**, **
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 
-Primary path: **SQL → pandas**. Package name: `sqlshift-ai`.
+Primary path: **SQL → pandas**. Package: `sqlshift-ai`.
 
 ```python
 from sqlshift.ai import pipeline
 print(pipeline("sql-migration")("SELECT ZEROIFNULL(a) FROM t", source="vertica", target="pandas"))
-print(pipeline("sql-risk-classification")("EXECUTE IMMEDIATE 'x'"))
 ```
 
 

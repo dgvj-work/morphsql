@@ -511,13 +511,31 @@ HERO_EXAMPLE = (
 
 FEATURE_SQL_PATH = Path(__file__).parent.parent / "examples" / "ml_features" / "churn_feature_sql.sql"
 
+# Human-readable labels (defined before convert helpers)
+SOURCE_LABELS = {
+    "vertica": "Vertica",
+    "oracle": "Oracle",
+    "redshift": "Redshift",
+    "bigquery": "BigQuery",
+    "snowflake": "Snowflake",
+}
+TARGET_LABELS = {
+    "pandas": "Python (pandas)",
+    "snowflake": "Snowflake SQL",
+    "bigquery": "BigQuery SQL",
+    "dbt-snowflake": "dbt project (Snowflake)",
+}
+SOURCE_DROPDOWN = [(label, key) for key, label in SOURCE_LABELS.items()]
+TARGET_DROPDOWN = [
+    ("Python (pandas) — recommended for notebooks", "pandas"),
+    ("Snowflake SQL", "snowflake"),
+    ("BigQuery SQL", "bigquery"),
+    ("dbt project (Snowflake)", "dbt-snowflake"),
+]
+
 
 def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, str]:
-    """One-shot agent demo: convert + explain + risk + share blurb.
-
-    Returns: explain_md, converted_sql, badge, share_md
-    """
-    from sqlshift.intelligence.rag import get_rag
+    """Convert SQL and return (notes_md, output, status, share_md)."""
     from sqlshift.risk.scorer import score_object
 
     sql = sql or HERO_EXAMPLE
@@ -532,7 +550,6 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
         target_d = Dialect(target)
 
     converted, conf, auto, review = translate_sql(sql, source_d, target_d)
-    # Risk scoring uses a SQL target dialect when emitting pandas
     score_target = Dialect.SNOWFLAKE if wants_pandas else target_d
     obj = MigrationObject(
         name="hero_query",
@@ -544,65 +561,89 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
 
     output = converted
     if wants_dbt:
-        files = decompose_to_dbt(obj, source_d, project_name="hero_agent")
+        files = decompose_to_dbt(obj, source_d, project_name="morphsql_dbt")
         output = format_dbt_project(files, max_files=12)
 
-    rag = get_rag()
-    rag_target = "snowflake" if (wants_dbt or wants_pandas) else target
-    hits = rag.retrieve(sql, top_k=3, source=source, target=rag_target)
+    source_label = SOURCE_LABELS.get(source, source)
+    target_label = TARGET_LABELS.get(target, target)
+    if wants_pandas:
+        kind = "Python (pandas)"
+        next_steps = [
+            "1. Copy the generated Python on the right.",
+            "2. Assign your DataFrames to `tables['table_name']`.",
+            "3. Run the script — use the `result` DataFrame.",
+        ]
+    elif wants_dbt:
+        kind = "dbt project"
+        next_steps = [
+            "1. Copy the generated dbt files.",
+            "2. Drop them into a dbt project and run `dbt run`.",
+            "3. Review models marked for manual checks.",
+        ]
+    else:
+        kind = f"{target_label} SQL"
+        next_steps = [
+            "1. Copy the converted SQL on the right.",
+            "2. Run it on the target warehouse.",
+            "3. Check any items under Needs review.",
+        ]
 
-    # Diff highlights for viral before/after readability
-    highlights: list[str] = []
-    for a in auto[:10]:
-        if "→" in a or "Date" in a or "Dialect" in a or "Removed" in a or "Converted" in a or "pandas" in a.lower() or "SELECT" in a or "WHERE" in a or "JOIN" in a or "GROUP" in a:
-            highlights.append(f"- {a}")
+    changes: list[str] = []
+    for a in auto[:8]:
+        if any(
+            k in a
+            for k in (
+                "→",
+                "Removed",
+                "Converted",
+                "JOIN",
+                "WHERE",
+                "GROUP",
+                "SELECT",
+                "pandas",
+                "Dialect",
+                "FROM dual",
+            )
+        ):
+            changes.append(f"- {a}")
 
-    explain = [
-        f"### {source.upper()} → {target.upper()}",
+    notes = [
+        f"### {source_label} → {target_label}",
         "",
-        f"**{conf:.0f}%** confidence · **{obj.risk_level.value}** risk "
-        f"({obj.complexity_score}/100)",
+        f"**{conf:.0f}%** confidence · output: **{kind}**",
+        "",
+        "**Next steps**",
+        *next_steps,
         "",
     ]
-    if wants_pandas:
-        explain.append("Output is **Python pandas** code. Fill `tables[...]` with your DataFrames, then run.")
-        explain.append("")
-    if highlights:
-        explain.append("**Key rewrites**")
-        explain.extend(highlights)
-        explain.append("")
+    if changes:
+        notes.append("**What changed**")
+        notes.extend(changes)
+        notes.append("")
     if review:
-        explain.append("**Needs review**")
-        explain.extend(f"- {r}" for r in review[:5])
-        explain.append("")
-    if hits and not wants_pandas:
-        explain.append("**Behavior RAG**")
-        for h in hits[:3]:
-            explain.append(f"- **{h.name}**: {h.recommendation}")
-        explain.append("")
+        notes.append("**Needs review**")
+        notes.extend(f"- {r}" for r in review[:5])
+        notes.append("")
 
-    badge = f"{conf:.0f}% · {obj.risk_level.value} · {obj.complexity_score}/100"
+    status = f"{conf:.0f}% · {kind}"
     space_url = "https://huggingface.co/spaces/dgvj-work/sqlshift-ai"
-    kind = "pandas" if wants_pandas else ("dbt project" if wants_dbt else "SQL")
     share = (
-        f"Converted **{source} → {target}** ({kind}) with **MorphSQL** "
+        f"MorphSQL converted **{source_label} → {target_label}** "
         f"({conf:.0f}% confidence).\n\n"
-        f"Try it / duplicate: [{space_url}]({space_url})\n"
-        f"Model: [dgvj-work/sqlshift-ai](https://huggingface.co/dgvj-work/sqlshift-ai) · "
+        f"[Open Space]({space_url}) · "
         f"[GitHub](https://github.com/dgvj-work/sql_shift_ai)"
     )
-    return "\n".join(explain), output, badge, share
+    return "\n".join(notes), output, status, share
 
 
-# One-line previews so Gradio example grids are never blank
 PLAYGROUND_EXAMPLE_LABELS = [
-    "Vertica → pandas (ZEROIFNULL)",
-    "Oracle → pandas (NVL / SYSDATE)",
-    "Redshift → pandas (GETDATE)",
-    "BigQuery → pandas (IFNULL)",
-    "Snowflake → pandas (COALESCE)",
-    "Vertica → Snowflake SQL",
-    "Vertica procedure → dbt",
+    "Example: Vertica SQL → pandas",
+    "Example: Oracle SQL → pandas",
+    "Example: Redshift SQL → pandas",
+    "Example: BigQuery SQL → pandas",
+    "Example: Snowflake SQL → pandas",
+    "Example: Vertica SQL → Snowflake",
+    "Example: Vertica procedure → dbt",
 ]
 
 PLAYGROUND_EXAMPLES = [
@@ -652,15 +693,22 @@ def load_playground_example(index: int) -> tuple[str, str, str]:
 
 
 def load_and_convert_example(index: int) -> tuple[str, str, str, str, str, str, str]:
-    """Load a preset and immediately convert — one-click wow path for HF visitors."""
+    """Load a preset and immediately convert."""
     sql, source, target = load_playground_example(index)
     explain, output, badge, share = run_hero_agent(sql, source, target)
     return sql, source, target, explain, output, badge, share
 
 
+def on_example_selected(label: str | None) -> tuple[str, str, str, str, str, str, str]:
+    """Dropdown helper: pick an example by its visible label."""
+    if not label or label not in PLAYGROUND_EXAMPLE_LABELS:
+        label = PLAYGROUND_EXAMPLE_LABELS[0]
+    return load_and_convert_example(PLAYGROUND_EXAMPLE_LABELS.index(label))
+
+
 AGENT_PROMPTS = [
     (
-        "Convert this SQL to pandas and predict risk",
+        "Convert this SQL to pandas",
         PLAYGROUND_EXAMPLES[0][0],
         "vertica",
         "pandas",
@@ -676,12 +724,6 @@ AGENT_PROMPTS = [
         PLAYGROUND_EXAMPLES[6][0],
         "vertica",
         "dbt-snowflake",
-    ),
-    (
-        "What NULL behavior differences matter for this SQL?",
-        "SELECT NVL(a, '') FROM dual",
-        "oracle",
-        "snowflake",
     ),
 ]
 
