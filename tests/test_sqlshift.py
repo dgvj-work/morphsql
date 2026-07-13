@@ -347,8 +347,22 @@ class TestTranslator:
         assert "from pyspark.sql" in spark_out
         assert spark_path.endswith(".py")
         assert "pyspark" in spark_path or "morphsql_pyspark" in spark_path
-        assert spark_preview is None
+        assert isinstance(spark_preview, pd.DataFrame)
         assert "Spark" in spark_nb or "pyspark" in spark_nb.lower()
+
+        for tgt in ("snowflake", "bigquery", "dbt-snowflake"):
+            _, out, _, _, prev, _, _, _ = convert_for_ui(
+                "SELECT COALESCE(a, 0) AS a FROM t WHERE a IS NOT NULL",
+                "snowflake",
+                tgt,
+            )
+            assert out.strip()
+            assert isinstance(prev, pd.DataFrame), f"preview missing for {tgt}"
+            df2, note2 = run_sample_preview(
+                out, tgt, sql="SELECT COALESCE(a, 0) AS a FROM t", source="snowflake"
+            )
+            assert isinstance(df2, pd.DataFrame)
+            assert "preview" in note2.lower() or "Sample" in note2
 
     def test_is_pandas_target(self):
         from sqlshift.translator.pandas_codegen import is_pandas_target

@@ -35,7 +35,7 @@ suggested_hardware: cpu-basic
 ## Try
 1. Open **Convert**
 2. Load a DS example (or paste SQL)
-3. See code + **sample preview** (pandas) + download `.py`
+3. See code + **sample preview** + download `.py`
 
 ```python
 from sqlshift.ai import pipeline

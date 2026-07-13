@@ -7,7 +7,7 @@ Convert Vertica / Oracle / Redshift / BigQuery / Snowflake SQL to **pandas** or 
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 
-Built for data scientists: convert → sample preview (pandas) → download `.py`.
+Built for data scientists: convert → sample preview → download `.py`.
 
 ```python
 from sqlshift.ai import pipeline

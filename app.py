@@ -41,8 +41,8 @@ def _build_demo() -> gr.Blocks:
                 <div class="eyebrow">AI / ML · DATA SCIENCE · SQL → PANDAS / PYSPARK</div>
                 <h1>{__product_name__}</h1>
                 <p>Turn warehouse SQL into notebook-ready <strong>pandas</strong> or
-                <strong>PySpark</strong> for training, EDA, or Spark jobs — with downloadable
-                <code>.py</code> (and a live sample preview for pandas).</p>
+                <strong>PySpark</strong> for training, EDA, or Spark jobs — with a live
+                sample preview and downloadable <code>.py</code>.</p>
             </div>
             """
         )
@@ -104,7 +104,7 @@ def _build_demo() -> gr.Blocks:
                         elem_classes=["download-box"],
                     )
                     preview = gr.Dataframe(
-                        label="Sample preview (pandas only)",
+                        label="Sample preview",
                         value=_BOOT[4],
                         wrap=True,
                         elem_classes=["preview-table"],
@@ -182,7 +182,7 @@ into pandas or PySpark you can run in Jupyter / Colab / Databricks.
 
 ## Recommended workflow
 1. Convert SQL → **Python (pandas)** or **Python (PySpark)**
-2. Check the **sample preview** (pandas) or download `.py` (PySpark)
+2. Check the **sample preview** (works for every output target)
 3. Copy the **HF pipeline** snippet
 4. Replace synthetic tables with real data
 

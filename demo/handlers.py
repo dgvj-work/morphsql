@@ -592,23 +592,25 @@ def run_hero_agent(sql: str, source: str, target: str) -> tuple[str, str, str, s
         kind = "Python (PySpark)"
         next_steps = [
             "1. Review the generated PySpark code on the right.",
-            "2. Download the `.py` file (preview needs a SparkSession — run in Databricks / EMR / local Spark).",
-            "3. Provide `tables['…']` or replace with `spark.table` / `spark.read`.",
-            "4. Use `result` as your Spark DataFrame.",
+            "2. Check the **sample preview** (same query logic on synthetic tables).",
+            "3. Download the `.py` file or open the Spark notebook starter.",
+            "4. Provide `tables['…']` or replace with `spark.table` / `spark.read`.",
         ]
     elif wants_dbt:
         kind = "dbt project"
         next_steps = [
             "1. Copy the generated dbt files.",
-            "2. Drop them into a dbt project and run `dbt run`.",
-            "3. Review models marked for manual checks.",
+            "2. Check the **sample preview** for query-shape sanity.",
+            "3. Drop models into a dbt project and run `dbt run`.",
+            "4. Review models marked for manual checks.",
         ]
     else:
         kind = f"{target_label} SQL"
         next_steps = [
             "1. Copy the converted SQL on the right.",
-            "2. Run it on the target warehouse.",
-            "3. Check any items under Needs review.",
+            "2. Check the **sample preview** (same query logic on synthetic tables).",
+            "3. Run the SQL on the target warehouse.",
+            "4. Check any items under Needs review.",
         ]
 
     changes: list[str] = []
@@ -743,6 +745,18 @@ def build_sample_tables(code: str, sql: str = "") -> dict:
     import pandas as pd
 
     keys = list(dict.fromkeys(re.findall(r"tables\[['\"]([^'\"]+)['\"]\]", code or "")))
+    if not keys and sql:
+        # Fallback: FROM / JOIN identifiers in the source SQL
+        keys = list(
+            dict.fromkeys(
+                re.findall(
+                    r"(?:FROM|JOIN)\s+([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)?)",
+                    sql,
+                    flags=re.I,
+                )
+            )
+        )
+        keys = [k for k in keys if k.lower() not in {"dual", "select"}]
     cols = _infer_columns_from_sql(sql)
     if not cols:
         cols = ["id", "value"]
@@ -768,36 +782,61 @@ def build_sample_tables(code: str, sql: str = "") -> dict:
     return frames
 
 
-def run_sample_preview(output: str, target: str, sql: str = "") -> tuple:
+def _preview_code_for_target(output: str, target: str, sql: str, source: str) -> tuple[str, str]:
     """
-    Execute generated pandas against synthetic tables.
+    Return (python_code, via_label) used to produce a sample DataFrame preview.
+
+    Pandas targets execute the generated code. All other targets reuse the same
+    source SQL → pandas path so preview works without Spark / a warehouse.
+    """
+    from sqlshift.translator.pandas_codegen import sql_to_pandas
+
+    code = output or ""
+    if is_pandas_target(target) and "import pandas" in code:
+        return code, "generated pandas"
+
+    if not (sql or "").strip():
+        return "", ""
+
+    try:
+        source_d = Dialect(source)
+    except ValueError:
+        source_d = Dialect.SNOWFLAKE
+
+    preview_code, _conf, _auto, _review = sql_to_pandas(sql, source_d)
+    label = TARGET_LABELS.get(target, target)
+    return preview_code, f"pandas runtime · same query logic (output above is {label})"
+
+
+def run_sample_preview(
+    output: str,
+    target: str,
+    sql: str = "",
+    source: str = "snowflake",
+) -> tuple:
+    """
+    Execute query logic against synthetic tables for a sample DataFrame preview.
+
+    Works for every Convert target: pandas runs the generated code; PySpark / SQL /
+    dbt reuse a pandas translation of the source SQL so the Space can show rows
+    without Spark or a warehouse connection.
     Returns (dataframe_or_none, note_md).
     """
     import pandas as pd
 
-    if is_pyspark_target(target):
-        return (
-            None,
-            "_Live preview needs a SparkSession — download the `.py` and run in "
-            "Databricks / EMR / local Spark. Sample preview is pandas-only._",
-        )
-    if not is_pandas_target(target):
-        return None, "_Live preview is available when output is **Python (pandas)**._"
+    preview_code, via = _preview_code_for_target(output, target, sql, source)
+    if not preview_code or "import pandas" not in preview_code:
+        return None, "_Could not build a sample preview for this input._"
 
-    code = output or ""
-    if "import pandas" not in code:
-        return None, "_No pandas code to preview._"
-
-    tables = build_sample_tables(code, sql)
-    if not tables and "tables[" in code:
+    tables = build_sample_tables(preview_code, sql)
+    if not tables and "tables[" in preview_code:
         return None, "_Could not infer input tables for a live preview._"
     if not tables:
-        # scalar / dual-style scripts
         tables = {}
 
     ns: dict = {"pd": pd, "np": __import__("numpy"), "tables": tables}
     try:
-        exec(code, ns, ns)  # noqa: S102 — intentional demo sandbox for generated code
+        exec(preview_code, ns, ns)  # noqa: S102 — intentional demo sandbox for generated code
     except Exception as exc:
         return None, f"_Preview could not run automatically:_ `{exc}`"
 
@@ -806,11 +845,10 @@ def run_sample_preview(output: str, target: str, sql: str = "") -> tuple:
         return None, "_Preview ran, but no `result` DataFrame was produced._"
 
     note = (
-        f"**Sample preview** · ran generated code on {len(tables)} synthetic table(s) "
+        f"**Sample preview** · {via} on {len(tables)} synthetic table(s) "
         f"→ `{result.shape[0]}` rows × `{result.shape[1]}` cols. "
-        "Replace `tables[...]` with your real DataFrames in a notebook."
+        "Replace inputs with your real data when you run the converted output."
     )
-    # Cap display size for Gradio
     return result.head(20), note
 
 
@@ -884,7 +922,9 @@ def hf_pipeline_snippet(sql: str, source: str, target: str) -> str:
 def convert_for_ui(sql: str, source: str, target: str):
     """Full Convert-tab payload for the Space UI."""
     notes, output, status, share = run_hero_agent(sql, source, target)
-    preview, preview_note = run_sample_preview(output, target, sql=sql or "")
+    preview, preview_note = run_sample_preview(
+        output, target, sql=sql or "", source=source or "snowflake"
+    )
     download = write_output_download(output, target)
     nb = notebook_cell(output, target)
     api = hf_pipeline_snippet(sql or HERO_EXAMPLE, source, target)
