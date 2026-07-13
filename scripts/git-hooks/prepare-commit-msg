@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Strip Cursor/agent attribution trailers so commits stay under the human author only.
+MSG_FILE="$1"
+[ -n "$MSG_FILE" ] && [ -f "$MSG_FILE" ] || exit 0
+# macOS/BSD sed
+if sed --version >/dev/null 2>&1; then
+  sed -i -e '/^Co-authored-by: Cursor <cursoragent@cursor\.com>$/d' \
+         -e '/^Made-with: Cursor$/d' \
+         -e '/^Co-authored-by:.*cursoragent@cursor\.com.*$/d' \
+         "$MSG_FILE"
+else
+  sed -i '' -e '/^Co-authored-by: Cursor <cursoragent@cursor\.com>$/d' \
+            -e '/^Made-with: Cursor$/d' \
+            -e '/^Co-authored-by:.*cursoragent@cursor\.com.*$/d' \
+            "$MSG_FILE"
+fi
